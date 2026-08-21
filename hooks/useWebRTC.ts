@@ -108,18 +108,40 @@ export function useWebRTC(
         pendingCandidatesRef.current = [];
       };
 
+      /**
+       * Binds the outgoing camera to the connection's video transceiver.
+       *
+       * The offerer runs this before creating the offer, so there is no
+       * transceiver yet and one is added. The answerer must run it *after*
+       * setRemoteDescription, so that the transceiver the offer created is
+       * reused. Adding one beforehand leaves the answerer with two — it receives
+       * on the offer's and sends on an unassociated one that is never
+       * negotiated, which shows up as video travelling in one direction only.
+       */
+      const attachLocalVideo = (peer: RTCPeerConnection) => {
+        let transceiver = peer
+          .getTransceivers()
+          .find((candidate) =>
+            [candidate.sender.track?.kind, candidate.receiver.track?.kind].includes("video"),
+          );
+
+        if (transceiver) {
+          // The offer may have arrived as recvonly if the far side had no camera.
+          transceiver.direction = "sendrecv";
+        } else {
+          transceiver = peer.addTransceiver("video", { direction: "sendrecv" });
+        }
+
+        videoSenderRef.current = transceiver.sender;
+        void transceiver.sender.replaceTrack(
+          localStreamRef.current?.getVideoTracks()[0] ?? null,
+        );
+      };
+
       const createPeer = () => {
         if (peerRef.current) return peerRef.current;
         const peer = new RTCPeerConnection(configuration);
         peerRef.current = peer;
-
-        // Reserve the video m-line up front so the offer is valid even when the
-        // camera is not ready yet. The track is filled in later via replaceTrack,
-        // which needs no renegotiation.
-        const transceiver = peer.addTransceiver("video", { direction: "sendrecv" });
-        videoSenderRef.current = transceiver.sender;
-        const track = localStreamRef.current?.getVideoTracks()[0];
-        if (track) void transceiver.sender.replaceTrack(track);
 
         peer.onicecandidate = ({ candidate }) => {
           if (!candidate) return;
@@ -212,6 +234,7 @@ export function useWebRTC(
       activeSocket.on("peer-joined", async () => {
         setConnectionState("connecting");
         const peer = createPeer();
+        attachLocalVideo(peer);
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
         activeSocket.emit("webrtc-offer", offer);
@@ -221,6 +244,8 @@ export function useWebRTC(
         setConnectionState("connecting");
         const peer = createPeer();
         await peer.setRemoteDescription(offer);
+        // Only now does the offer's transceiver exist to be reused.
+        attachLocalVideo(peer);
         await flushCandidates(peer);
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
