@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "cross-env NODE_ENV=production node server.mjs",
     "test:signaling": "node scripts/signaling-smoke.mjs",
-    "test:turn": "node --env-file-if-exists=.env.local scripts/turn-check.mjs",
+    "test:turn": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/turn-check.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
