@@ -77,7 +77,13 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
             label="THEM" number={role === "host" ? "02" : "01"}
             stream={rtc.remoteStream} videoRef={remoteVideoRef} muted={false}
             score={remoteInference.score} analysing={remoteInference.isAnalysing}
-            waitingText={rtc.connectionState === "connecting" ? "CONNECTING" : "WAITING FOR OPPONENT"}
+            waitingText={
+              rtc.connectionState === "connected"
+                ? "OPPONENT CAMERA OFF"
+                : rtc.connectionState === "connecting"
+                  ? "CONNECTING"
+                  : "WAITING FOR OPPONENT"
+            }
           />
         </div>
 

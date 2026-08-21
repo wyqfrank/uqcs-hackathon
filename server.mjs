@@ -45,12 +45,12 @@ io.on("connection", (socket) => {
     const sockets = await io.in(normalizedRoomId).fetchSockets();
 
     if (!/^MOG-\d{4}$/.test(normalizedRoomId)) {
-      acknowledge({ ok: false, error: "Invalid room code." });
+      acknowledge({ ok: false, code: "invalid-code", error: "Invalid room code." });
       return;
     }
 
     if (sockets.length >= 2) {
-      acknowledge({ ok: false, error: "This battle already has two players." });
+      acknowledge({ ok: false, code: "room-full", error: "This battle already has two players." });
       return;
     }
 
@@ -68,12 +68,14 @@ io.on("connection", (socket) => {
     const sockets = await io.in(normalizedRoomId).fetchSockets();
 
     if (sockets.length === 0) {
-      acknowledge({ ok: false, error: "Battle not found. Check the room code." });
+      // Not necessarily a bad code: the host may still be loading. The guest
+      // retries on this code rather than showing a dead end straight away.
+      acknowledge({ ok: false, code: "not-found", error: "Battle not found. Check the room code." });
       return;
     }
 
     if (sockets.length >= 2) {
-      acknowledge({ ok: false, error: "This battle already has two players." });
+      acknowledge({ ok: false, code: "room-full", error: "This battle already has two players." });
       return;
     }
 

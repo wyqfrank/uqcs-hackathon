@@ -24,6 +24,8 @@ export type ConnectionState =
   | "error";
 
 const ROUTE_POLL_MS = 2000;
+const JOIN_RETRY_MS = 2000;
+const JOIN_MAX_ATTEMPTS = 15;
 
 export function useWebRTC(
   roomId: string,
@@ -40,10 +42,24 @@ export function useWebRTC(
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const routeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const joinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(localStream);
+  const videoSenderRef = useRef<RTCRtpSender | null>(null);
 
+  // Swapping the outgoing track keeps the peer connection alive across camera
+  // stops and restarts. Tearing the connection down and renegotiating would drop
+  // the opponent every time someone toggles their camera.
   useEffect(() => {
-    if (!localStream) return;
+    localStreamRef.current = localStream;
+    const sender = videoSenderRef.current;
+    if (!sender) return;
+    void sender.replaceTrack(localStream?.getVideoTracks()[0] ?? null);
+  }, [localStream]);
 
+  // Signalling deliberately does not depend on the camera. A guest who joins
+  // before the host has granted camera access used to be told the battle did not
+  // exist; the room is now claimed as soon as the page loads.
+  useEffect(() => {
     let active = true;
     let socket: Socket | null = null;
 
@@ -56,6 +72,7 @@ export function useWebRTC(
       stopRoutePolling();
       peerRef.current?.close();
       peerRef.current = null;
+      videoSenderRef.current = null;
       pendingCandidatesRef.current = [];
       setRemoteStream(null);
       setRoute(null);
@@ -75,8 +92,7 @@ export function useWebRTC(
 
     const start = async () => {
       // Cloudflare mints TURN credentials on demand, so the configuration has to
-      // resolve before the first RTCPeerConnection exists. Signalling waits on it
-      // too: an offer built without the relay could not fall back to it later.
+      // resolve before the first RTCPeerConnection exists.
       const { configuration, turnSource: resolvedTurnSource } = await getIceConfig();
       if (!active) return;
       setTurnSource(resolvedTurnSource);
@@ -96,7 +112,14 @@ export function useWebRTC(
         if (peerRef.current) return peerRef.current;
         const peer = new RTCPeerConnection(configuration);
         peerRef.current = peer;
-        localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
+
+        // Reserve the video m-line up front so the offer is valid even when the
+        // camera is not ready yet. The track is filled in later via replaceTrack,
+        // which needs no renegotiation.
+        const transceiver = peer.addTransceiver("video", { direction: "sendrecv" });
+        videoSenderRef.current = transceiver.sender;
+        const track = localStreamRef.current?.getVideoTracks()[0];
+        if (track) void transceiver.sender.replaceTrack(track);
 
         peer.onicecandidate = ({ candidate }) => {
           if (!candidate) return;
@@ -108,8 +131,17 @@ export function useWebRTC(
           }
           activeSocket.emit("ice-candidate", candidate.toJSON());
         };
-        peer.ontrack = ({ streams }) => {
-          if (streams[0]) setRemoteStream(streams[0]);
+        peer.ontrack = ({ streams, track: remoteTrack }) => {
+          // A transceiver-reserved m-line carries no stream association, so wrap
+          // the bare track when the sender did not supply one.
+          const stream = streams[0] ?? new MediaStream([remoteTrack]);
+          // The reserved m-line yields a track before the opponent has a camera,
+          // and it goes muted again whenever they stop it. Following mute state
+          // keeps "camera off" from looking like a live feed.
+          const syncRemote = () => setRemoteStream(remoteTrack.muted ? null : stream);
+          remoteTrack.onunmute = syncRemote;
+          remoteTrack.onmute = syncRemote;
+          syncRemote();
         };
         peer.onconnectionstatechange = () => {
           if (peer.connectionState === "connected") {
@@ -138,22 +170,44 @@ export function useWebRTC(
         return peer;
       };
 
-      activeSocket.on("connect", () => {
+      let joinAttempts = 0;
+      const joinRoom = () => {
+        if (!active) return;
         const eventName = role === "host" ? "create-room" : "join-room";
         activeSocket.emit(
           eventName,
           { roomId },
           (acknowledgement: RoomAcknowledgement) => {
             if (!active) return;
-            if (!acknowledgement.ok) {
-              setError(acknowledgement.error);
-              setConnectionState("error");
+            if (acknowledgement.ok) {
+              joinAttempts = 0;
+              setConnectionState("waiting");
+              setError(null);
               return;
             }
-            setConnectionState("waiting");
+
+            // The host may simply not have loaded yet, so a guest retries for a
+            // while before calling the code wrong.
+            const hostMayStillArrive =
+              role === "guest" && acknowledgement.code === "not-found";
+            if (hostMayStillArrive && joinAttempts < JOIN_MAX_ATTEMPTS) {
+              joinAttempts += 1;
+              setConnectionState("waiting");
+              joinTimerRef.current = setTimeout(joinRoom, JOIN_RETRY_MS);
+              return;
+            }
+
+            setError(
+              hostMayStillArrive
+                ? "No one has started this battle. Check the code, or ask the host to create the battle first."
+                : acknowledgement.error,
+            );
+            setConnectionState("error");
           },
         );
-      });
+      };
+
+      activeSocket.on("connect", joinRoom);
 
       activeSocket.on("peer-joined", async () => {
         setConnectionState("connecting");
@@ -203,12 +257,14 @@ export function useWebRTC(
 
     return () => {
       active = false;
+      if (joinTimerRef.current) clearTimeout(joinTimerRef.current);
+      joinTimerRef.current = null;
       socket?.emit("leave-room");
       socket?.disconnect();
       closePeer();
       socketRef.current = null;
     };
-  }, [localStream, role, roomId]);
+  }, [role, roomId]);
 
   return { remoteStream, connectionState, candidateTypes, route, turnSource, error };
 }
