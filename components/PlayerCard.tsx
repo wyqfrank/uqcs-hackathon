@@ -1,6 +1,8 @@
 import { useEffect, type RefObject } from "react";
 import { Camera } from "lucide-react";
+import type { DetectorState, OutfitDetectionResult } from "@/lib/cv/types";
 import { FittedScore } from "./FittedScore";
+import { OutfitDetectionOverlay } from "./OutfitDetectionOverlay";
 
 export function PlayerCard({
   label,
@@ -11,6 +13,7 @@ export function PlayerCard({
   score,
   analysing,
   waitingText,
+  detection,
 }: {
   label: string;
   number: string;
@@ -20,6 +23,10 @@ export function PlayerCard({
   score: number | null;
   analysing: boolean;
   waitingText: string;
+  detection?: {
+    state: DetectorState;
+    result: OutfitDetectionResult | null;
+  };
 }) {
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = stream;
@@ -33,6 +40,13 @@ export function PlayerCard({
       </header>
       <div className="video-stage">
         <video ref={videoRef} autoPlay playsInline muted={muted} />
+        {stream && detection && (
+          <OutfitDetectionOverlay
+            videoRef={videoRef}
+            detectorState={detection.state}
+            result={detection.result}
+          />
+        )}
         {!stream && (
           <div className="video-placeholder">
             <span><Camera aria-hidden="true" /></span>

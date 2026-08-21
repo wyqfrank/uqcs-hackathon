@@ -2,6 +2,7 @@
 
 **Product:** MOG  
 **Status:** Draft  
+**Implementation:** Initial browser pipeline implemented; fixture calibration and live-device validation pending
 **Scope:** Live person detection, pose tracking, frame-quality validation, and canonical outfit cropping  
 **Out of scope:** Taste scoring, social-signal training, pairwise ranking, and production deployment
 
@@ -67,7 +68,7 @@ MediaPipe provides 33 body landmarks, landmark visibility, and optional person s
 
 ## 5. Client-side architecture
 
-Each browser should analyse its own uncompressed local camera feed. The browser should not wait for a server round trip before showing framing guidance.
+Each browser analyses its own uncompressed local camera feed. The browser does not wait for a server round trip before showing framing guidance. The first implementation targets Chrome and Edge and reports `detector_unavailable` when the required browser APIs are missing.
 
 ```text
 HTMLVideoElement at camera frame rate
@@ -171,7 +172,7 @@ The first implementation should evaluate grouped landmarks rather than requiring
 - legs: left/right knees;
 - lower extent: ankles, heels, or foot-index landmarks.
 
-A scoreable full-outfit frame must provide reliable torso and leg evidence plus enough lower-extent evidence to determine that the outfit is not cut off. Exact confidence thresholds remain tunable until evaluated on representative webcam fixtures.
+A scoreable frame must provide reliable head, torso, and knee evidence. Ankles, heels, and foot-index landmarks are optional: missing feet do not invalidate an otherwise usable outfit, but `visibleRegions.feet` must be `false` so the future scorer knows that footwear evidence is unavailable. Exact confidence thresholds remain tunable until evaluated on representative webcam fixtures.
 
 Long dresses, wide trousers, layering, and partial self-occlusion must be included in the fixture set so landmark visibility rules do not systematically reject valid outfits.
 
@@ -182,8 +183,10 @@ Reject or pause scoring when:
 - the detected person occupies too little of the frame;
 - the person fills the frame so tightly that padding cannot be added;
 - the calculated person bounds touch the frame edge;
-- the head, torso, legs, or feet appear cropped;
+- the head, torso, or knees appear cropped;
 - there is insufficient surrounding space for bags, outerwear, or silhouette.
+
+Bottom-edge clipping is permitted when the knees remain usable. It must be recorded as missing foot evidence rather than silently implying that shoes were assessed.
 
 Initial tunable values:
 
@@ -237,7 +240,7 @@ Smoothing must not allow an old crop to lag significantly behind a moving person
 
 ## 10. Canonical crop
 
-The crop must preserve the complete visible outfit and enough context for silhouette, layering, shoes, headwear, and carried accessories.
+The crop must preserve the complete visible outfit evidence and enough context for silhouette, layering, headwear, and carried accessories. Shoes are retained when visible but are not mandatory for a valid crop.
 
 Crop algorithm:
 
@@ -422,15 +425,15 @@ Keep pure crop, quality, motion, and state-transition logic outside React and th
 
 - [ ] Build a still-image MediaPipe spike and debug overlay.
 - [ ] Create and classify the initial fixture set.
-- [ ] Implement landmark visibility and framing checks.
-- [ ] Implement deterministic padded canonical cropping.
+- [x] Implement landmark visibility and framing checks.
+- [x] Implement deterministic padded canonical cropping.
 - [ ] Compare Pose Lite and Pose Full on target hardware.
-- [ ] Move video detection into a Web Worker.
-- [ ] Implement latest-frame scheduling with zero queueing.
-- [ ] Add temporal smoothing and hysteresis.
-- [ ] Add brightness, blur, and motion metrics.
-- [ ] Implement the recent candidate-frame buffer and selector.
-- [ ] Integrate detection status into the battle UI.
+- [x] Move video detection into a Web Worker.
+- [x] Implement latest-frame scheduling with zero queueing.
+- [x] Add temporal smoothing and hysteresis.
+- [x] Add brightness, blur, and motion metrics.
+- [x] Implement the recent candidate-frame buffer and selector.
+- [x] Integrate detection status into the battle UI.
 - [ ] Connect selected crops to the visual-encoder baseline.
 - [ ] Test camera restart, disconnect, and cleanup behaviour.
 - [ ] Run face-blur and background-neutralisation ablations.
@@ -441,11 +444,15 @@ Keep pure crop, quality, motion, and state-transition logic outside React and th
 - Pose Lite versus Pose Full after benchmarking.
 - Final landmark visibility and framing thresholds.
 - Exact brightness, blur, and motion thresholds.
-- Whether full-foot visibility is mandatory or partial outfits can be scored without shoes.
 - Whether face blurring becomes the default preprocessing path.
 - Whether background segmentation improves fairness without removing useful accessories or silhouette.
-- Whether detection runs independently on each local client or the host coordinates both feeds.
-- Minimum browser support and fallback behaviour.
 - Whether garment boxes or masks materially improve target-audience preference accuracy.
+
+Decisions locked for the initial implementation:
+
+- detection runs independently on each player's local, uncompressed camera feed;
+- missing feet are allowed when head, torso, and knee evidence is usable;
+- Chrome and Edge are the supported initial browsers;
+- selected crops remain local until the inference-transport design is specified.
 
 This document becomes **Final** only after the acceptance criteria are met and the open decisions required for the MVP are resolved.

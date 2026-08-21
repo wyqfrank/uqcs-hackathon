@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Camera, CameraOff, Copy, LogOut, Snowflake } from "lucide-react";
 import { useCamera } from "@/hooks/useCamera";
 import { useInference } from "@/hooks/useInference";
+import { useOutfitDetection } from "@/hooks/useOutfitDetection";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import type { RoomRole } from "@/lib/signaling";
 import { BattleResult } from "./BattleResult";
@@ -22,6 +23,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
   const rtc = useWebRTC(roomId, role, camera.stream);
   const localInference = useInference(localVideoRef, Boolean(camera.stream), frozen);
   const remoteInference = useInference(remoteVideoRef, Boolean(rtc.remoteStream), frozen);
+  const outfitDetection = useOutfitDetection(localVideoRef, Boolean(camera.stream));
 
   const copyRoomCode = async () => {
     await navigator.clipboard.writeText(roomId);
@@ -62,6 +64,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
             stream={camera.stream} videoRef={localVideoRef} muted
             score={localInference.score} analysing={localInference.isAnalysing}
             waitingText={camera.status === "requesting" ? "OPENING CAMERA" : "CAMERA OFF"}
+            detection={{ state: outfitDetection.detectorState, result: outfitDetection.result }}
           />
           <div className="versus-mark"><span>V</span><span>S</span></div>
           <PlayerCard

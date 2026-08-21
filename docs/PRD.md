@@ -42,8 +42,8 @@ This checklist is the high-level source of truth for specification and implement
 - [ ] The complete two-laptop flow is verified on the intended HTTPS demo environment.
 - [x] Video-frame capture and latest-frame backpressure are implemented.
 - [x] Battle UI supports placeholder scores, winner state, score freezing, copying the room code, and leaving.
-- [ ] Person/pose detection and frame-quality gating are implemented.
-- [ ] Canonical padded full-outfit cropping is implemented.
+- [x] Person/pose detection and frame-quality gating are implemented.
+- [x] Canonical padded outfit cropping is implemented, with feet treated as optional evidence.
 - [ ] A frozen visual-encoder baseline is implemented and evaluated.
 - [ ] A pairwise scoring head is implemented and evaluated.
 - [ ] Instagram residual labels and expert model are implemented.
