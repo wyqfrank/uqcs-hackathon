@@ -48,7 +48,11 @@ export const HAS_STATIC_TURN = staticTurnServers().length > 0;
 function buildConfiguration(turnServers: RTCIceServer[]): RTCConfiguration {
   return {
     iceServers: [...STUN_SERVERS, ...turnServers],
-    iceCandidatePoolSize: 4,
+    // Left at 0 deliberately. A pool pre-gathers candidates when the connection
+    // is constructed, which allocates one TURN relay per pooled slot before any
+    // call exists — quota spent on connections that may never be used, for a
+    // setup saving of a few hundred milliseconds.
+    iceCandidatePoolSize: 0,
   };
 }
 
@@ -58,8 +62,17 @@ type CredentialsResponse = {
   error: string | null;
 };
 
+/** Set NEXT_PUBLIC_DISABLE_TURN=1 to test on a known-good network without
+ *  allocating relays. Direct connections are unaffected; only the safety net
+ *  is removed, so never ship a build with this set. */
+const TURN_DISABLED = (process.env.NEXT_PUBLIC_DISABLE_TURN ?? "") === "1";
+
 async function resolve(): Promise<ResolvedIceConfig> {
   let cloudflareError: string | null = null;
+
+  if (TURN_DISABLED) {
+    return { configuration: buildConfiguration([]), turnSource: "none", error: null };
+  }
 
   try {
     const response = await fetch("/api/turn-credentials", { cache: "no-store" });
