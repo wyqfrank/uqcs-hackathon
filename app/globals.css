@@ -135,6 +135,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .room-code span { color: #5e5e64; font-size: .52rem; letter-spacing: .16em; }
 .room-code b { font-size: .67rem; letter-spacing: .14em; }
 .room-code svg { width: 15px; color: #777; }
+.error-stack { position: relative; z-index: 3; width: min(700px, 92vw); margin: 14px auto -20px; display: flex; flex-direction: column; gap: 8px; }
+.error-stack .error-banner { width: 100%; margin: 0; }
 .error-banner { position: relative; z-index: 3; width: min(700px, 92vw); margin: 14px auto -20px; padding: 12px 16px; display: flex; gap: 15px; align-items: center; background: rgba(255,61,110,.1); border: 1px solid rgba(255,61,110,.35); font-size: .65rem; }
 .error-banner b { color: #ff668e; letter-spacing: .1em; }
 .error-banner span { color: #babac0; }

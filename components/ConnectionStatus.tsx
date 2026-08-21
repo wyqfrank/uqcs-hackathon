@@ -3,6 +3,7 @@ import type { ConnectionState } from "@/hooks/useWebRTC";
 import { describeRoute, type IceCandidateType, type IceRoute } from "@/lib/rtcConfig";
 
 const labels: Record<ConnectionState, string> = {
+  searching: "LOOKING FOR BATTLE",
   waiting: "WAITING FOR OPPONENT",
   connecting: "CONNECTING",
   connected: "OPPONENT CONNECTED",

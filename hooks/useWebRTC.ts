@@ -16,6 +16,7 @@ import {
 } from "@/lib/signaling";
 
 export type ConnectionState =
+  | "searching"
   | "waiting"
   | "connecting"
   | "connected"
@@ -24,8 +25,11 @@ export type ConnectionState =
   | "error";
 
 const ROUTE_POLL_MS = 2000;
-const JOIN_RETRY_MS = 2000;
-const JOIN_MAX_ATTEMPTS = 15;
+// The host claims its room as soon as the page loads, so the only genuine race
+// left is the host still loading. A short window covers that; anything longer
+// just makes a mistyped code look like a room that exists.
+const JOIN_RETRY_MS = 1500;
+const JOIN_MAX_ATTEMPTS = 8;
 
 export function useWebRTC(
   roomId: string,
@@ -209,19 +213,21 @@ export function useWebRTC(
             }
 
             // The host may simply not have loaded yet, so a guest retries for a
-            // while before calling the code wrong.
+            // short while before calling the code wrong. This reports as
+            // "searching" rather than "waiting": the room is not joined, and a
+            // mistyped code must never look like sitting in a real battle.
             const hostMayStillArrive =
               role === "guest" && acknowledgement.code === "not-found";
             if (hostMayStillArrive && joinAttempts < JOIN_MAX_ATTEMPTS) {
               joinAttempts += 1;
-              setConnectionState("waiting");
+              setConnectionState("searching");
               joinTimerRef.current = setTimeout(joinRoom, JOIN_RETRY_MS);
               return;
             }
 
             setError(
               hostMayStillArrive
-                ? "No one has started this battle. Check the code, or ask the host to create the battle first."
+                ? `No battle is running under ${roomId}. Check the code, or ask the other player to create the battle first.`
                 : acknowledgement.error,
             );
             setConnectionState("error");
