@@ -1,7 +1,7 @@
 import { io } from "socket.io-client";
 
 const url = process.env.TEST_SERVER_URL || "http://localhost:3000";
-const roomId = "MOG-9001";
+const roomId = "FIT-9001";
 const clients = [io(url), io(url), io(url)];
 
 function emitWithAck(client, event, payload) {

@@ -99,7 +99,7 @@ export default function DiagnosticsPage() {
       <div className="ambient ambient-one" />
 
       <nav className="landing-nav">
-        <Link href="/" className="wordmark">MOG<span>®</span></Link>
+        <Link href="/" className="wordmark">FITTED<span>®</span></Link>
         <div className="nav-status"><i /> NETWORK CHECK</div>
       </nav>
 

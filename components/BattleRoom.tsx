@@ -45,7 +45,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
     <main className="battle-shell">
       <div className="battle-grid" />
       <nav className="battle-nav">
-        <Button variant="bare" size="bare" className="wordmark wordmark-button" onClick={leave}>MOG<span>®</span></Button>
+        <Button variant="bare" size="bare" className="wordmark wordmark-button" onClick={leave}>FITTED<span>®</span></Button>
         <ConnectionStatus
           connection={rtc.connectionState}
           camera={camera.status}

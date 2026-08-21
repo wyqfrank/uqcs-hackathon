@@ -44,7 +44,7 @@ io.on("connection", (socket) => {
     const normalizedRoomId = String(roomId || "").toUpperCase();
     const sockets = await io.in(normalizedRoomId).fetchSockets();
 
-    if (!/^MOG-\d{4}$/.test(normalizedRoomId)) {
+    if (!/^FIT-\d{4}$/.test(normalizedRoomId)) {
       acknowledge({ ok: false, code: "invalid-code", error: "Invalid room code." });
       return;
     }
@@ -105,7 +105,7 @@ io.on("connection", (socket) => {
 server.listen(port, hostname, () => {
   const protocol = process.env.SSL_KEY_PATH ? "https" : "http";
   const browserHost = hostname === "0.0.0.0" ? "localhost" : hostname;
-  console.log(`MOG Battle ready on ${protocol}://${browserHost}:${port}`);
+  console.log(`FITTED Battle ready on ${protocol}://${browserHost}:${port}`);
   if (hostname === "0.0.0.0") {
     console.log("For another laptop, use a trusted HTTPS tunnel or the LAN HTTPS setup in README.md.");
   }

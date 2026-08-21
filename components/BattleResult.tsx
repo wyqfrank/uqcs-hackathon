@@ -10,7 +10,7 @@ export function BattleResult({ localScore, remoteScore, role }: { localScore: nu
   const player2 = role === "host" ? remoteScore : localScore;
   const winner = determineWinner(player1, player2);
   const localWon = (winner === "player1" && role === "host") || (winner === "player2" && role === "guest");
-  const verdict = winner === "draw" ? "TOO CLOSE TO CALL" : localWon ? "YOU MOG" : "THEY MOG";
+  const verdict = winner === "draw" ? "TOO CLOSE TO CALL" : localWon ? "YOU'RE FITTED" : "THEY'RE FITTED";
 
   return (
     <div className={`battle-result ${winner === "draw" ? "draw" : localWon ? "winner" : "loser"}`}>

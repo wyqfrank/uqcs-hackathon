@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 function generateRoomId() {
-  return `MOG-${Math.floor(1000 + Math.random() * 9000)}`;
+  return `FIT-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
 export default function LandingPage() {
@@ -23,8 +23,8 @@ export default function LandingPage() {
       return;
     }
     const normalized = roomCode.trim().toUpperCase();
-    if (!/^MOG-\d{4}$/.test(normalized)) {
-      setError("Enter a room code like MOG-4821");
+    if (!/^FIT-\d{4}$/.test(normalized)) {
+      setError("Enter a room code like FIT-4821");
       return;
     }
     router.push(`/room/${normalized}`);
@@ -36,13 +36,13 @@ export default function LandingPage() {
       <div className="ambient ambient-two" />
 
       <nav className="landing-nav">
-        <div className="wordmark">MOG<span>®</span></div>
+        <div className="wordmark">FITTED<span>®</span></div>
         <div className="nav-status"><i /> LIVE FIT BATTLES</div>
       </nav>
 
       <section className="hero">
         <div className="eyebrow"><Swords /> HEAD-TO-HEAD STYLE</div>
-        <h1>WHO<br /><em>MOGS?</em></h1>
+        <h1>WHO&apos;S<br /><em>FITTED?</em></h1>
         <p>Two fits enter. One leaves iconic.<br />Start a live camera battle and settle it.</p>
 
         <div className="landing-actions">
@@ -64,7 +64,7 @@ export default function LandingPage() {
                     setError("");
                   }}
                   onKeyDown={(event) => event.key === "Enter" && joinBattle()}
-                  placeholder="MOG-4821"
+                  placeholder="FIT-4821"
                   maxLength={8}
                   autoFocus
                 />

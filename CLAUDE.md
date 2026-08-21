@@ -158,7 +158,7 @@ Keep typography simple and hierarchical.
 
 Prefer:
 
-- large bold display text for battle states and MOG scores
+- large bold display text for battle states and FIT scores
 - medium-weight headings
 - normal body text
 - muted small text for metadata and status
@@ -297,7 +297,7 @@ The surrounding container should own:
 
 - player label
 - connection state
-- MOG score
+- FIT score
 - loading state
 - disconnected state
 - video overlay controls
@@ -308,14 +308,14 @@ Local and remote players should have visually symmetrical layouts unless there i
 
 ---
 
-## 11. MOG Score UI
+## 11. FIT Score UI
 
 There should be one canonical score component.
 
 Example API:
 
 ```tsx
-<MogScore
+<FittedScore
   score={82.4}
   confidence={0.91}
   state="live"
@@ -502,7 +502,7 @@ Examples:
 - camera stream → camera hook/component
 - peer connection → WebRTC hook
 - room state → battle room
-- current MOG score → inference hook / battle state
+- current FIT score → inference hook / battle state
 - purely visual open/closed state → local component
 
 Do not introduce a global state library unless state complexity genuinely requires it.
@@ -527,7 +527,7 @@ components/
     BattleRoom.tsx
     BattleResult.tsx
     PlayerCard.tsx
-    MogScore.tsx
+    FittedScore.tsx
   camera/
     CameraFeed.tsx
   ui/
@@ -664,3 +664,21 @@ Before considering frontend work complete, verify:
 - interactive states work with keyboard navigation
 
 The priority is a polished, coherent hackathon product with a small and predictable UI system.
+
+---
+
+## 26. PRD Progress Tracking
+
+`docs/PRD.md` is the source of truth for product scope and high-level specification, implementation, and verification status.
+
+Use its task-list checkboxes consistently:
+
+- `[ ]` means incomplete, undecided, blocked, or not yet verified.
+- `[x]` means the exact stated outcome is complete and has been verified.
+- A proposal, design discussion, or written specification is not implemented work.
+- Do not check an implementation item merely because code exists; verify the behaviour described by the item.
+- When a change completes or invalidates a tracked item, update the relevant PRD checkbox in the same change.
+- If an item is removed from scope, remove it or mark it explicitly as out of scope instead of checking it.
+- Preserve separate specification, implementation, and verification statuses when they do not complete at the same time.
+
+Keep the PRD focused on product requirements, major design decisions, and delivery status. When a subsystem needs extensive interfaces, algorithms, schemas, experiments, or test plans, place that detail in a focused document under `docs/specs/` and link it from the PRD. Do not create a separate specification document for routine or still-evolving details.
