@@ -158,7 +158,7 @@ Keep typography simple and hierarchical.
 
 Prefer:
 
-- large bold display text for battle states and MOG scores
+- large bold display text for battle states and FIT scores
 - medium-weight headings
 - normal body text
 - muted small text for metadata and status
@@ -297,7 +297,7 @@ The surrounding container should own:
 
 - player label
 - connection state
-- MOG score
+- FIT score
 - loading state
 - disconnected state
 - video overlay controls
@@ -308,14 +308,14 @@ Local and remote players should have visually symmetrical layouts unless there i
 
 ---
 
-## 11. MOG Score UI
+## 11. FIT Score UI
 
 There should be one canonical score component.
 
 Example API:
 
 ```tsx
-<MogScore
+<FittedScore
   score={82.4}
   confidence={0.91}
   state="live"
@@ -502,7 +502,7 @@ Examples:
 - camera stream → camera hook/component
 - peer connection → WebRTC hook
 - room state → battle room
-- current MOG score → inference hook / battle state
+- current FIT score → inference hook / battle state
 - purely visual open/closed state → local component
 
 Do not introduce a global state library unless state complexity genuinely requires it.
@@ -527,7 +527,7 @@ components/
     BattleRoom.tsx
     BattleResult.tsx
     PlayerCard.tsx
-    MogScore.tsx
+    FittedScore.tsx
   camera/
     CameraFeed.tsx
   ui/

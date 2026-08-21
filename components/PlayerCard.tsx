@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from "react";
 import { Camera } from "lucide-react";
-import { MogScore } from "./MogScore";
+import { FittedScore } from "./FittedScore";
 
 export function PlayerCard({
   label,
@@ -42,7 +42,7 @@ export function PlayerCard({
         )}
         <div className="corner corner-tl" /><div className="corner corner-tr" />
         <div className="corner corner-bl" /><div className="corner corner-br" />
-        <MogScore score={score} active={analysing} />
+        <FittedScore score={score} active={analysing} />
       </div>
     </article>
   );

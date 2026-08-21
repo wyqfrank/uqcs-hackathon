@@ -1,9 +1,9 @@
-export type MogResult = {
+export type FittedResult = {
   score: number;
   confidence?: number;
 };
 
-export async function inferFrame(frame: Blob): Promise<MogResult> {
+export async function inferFrame(frame: Blob): Promise<FittedResult> {
   // Replace this function body with the real model/API call. The frame is already
   // resized and encoded, and the inference loop provides backpressure.
   await new Promise((resolve) => setTimeout(resolve, 70 + Math.random() * 90));
