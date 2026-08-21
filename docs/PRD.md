@@ -12,6 +12,55 @@ The prototype should answer one central question: can an ML model act as a fun, 
 
 ---
 
+## Delivery Status
+
+This checklist is the high-level source of truth for specification and implementation progress.
+
+- `[ ]` means incomplete, undecided, or not yet verified.
+- `[x]` means the stated outcome is complete and has been verified.
+- Describing or proposing an item elsewhere in this PRD does not make it complete.
+- Update the relevant checkbox in the same change that completes the work.
+
+### Specification status
+
+- [x] Core two-player product flow is defined.
+- [x] Current landing and battle-room UI direction is documented.
+- [x] Social weak supervision plus target-audience A/B calibration is documented as the current ML direction.
+- [ ] Target audience is defined precisely enough to recruit representative judges.
+- [x] Initial CV detection specification is documented in [`docs/specs/cv-detection.md`](specs/cv-detection.md).
+- [ ] CV detection, frame-quality, and canonical-cropping specification is finalised and validated.
+- [ ] Instagram and Depop data-acquisition and residual-construction specification is finalised.
+- [ ] Final scoring, calibration, draw, and displayed-score behaviour is decided.
+- [ ] Inference ownership, frame transport, and deployment architecture is decided.
+
+### Implementation status
+
+- [x] Landing page supports creating and joining a room with room-code validation.
+- [x] Socket.IO room creation, joining, capacity limits, SDP relay, leaving, and reconnection pass the signalling smoke test.
+- [x] Local camera lifecycle and camera error states are implemented.
+- [x] WebRTC local and remote video-feed handling is implemented.
+- [ ] The complete two-laptop flow is verified on the intended HTTPS demo environment.
+- [x] Video-frame capture and latest-frame backpressure are implemented.
+- [x] Battle UI supports placeholder scores, winner state, score freezing, copying the room code, and leaving.
+- [ ] Person/pose detection and frame-quality gating are implemented.
+- [ ] Canonical padded full-outfit cropping is implemented.
+- [ ] A frozen visual-encoder baseline is implemented and evaluated.
+- [ ] A pairwise scoring head is implemented and evaluated.
+- [ ] Instagram residual labels and expert model are implemented.
+- [ ] Depop residual labels and expert model are implemented.
+- [ ] Target-audience A/B labelling dataset is collected.
+- [ ] Real ML inference service is implemented.
+- [ ] Live inference replaces the placeholder score generator.
+
+### Verification status
+
+- [x] TypeScript typecheck passes.
+- [x] Production build passes.
+- [x] Signalling smoke test passes.
+- [ ] Real webcam, motion, detection, scoring, and two-device behaviour are verified together.
+
+---
+
 ## 2. Product Goal
 
 Create a reliable two-player experience in which:

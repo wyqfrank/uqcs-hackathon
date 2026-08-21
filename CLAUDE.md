@@ -664,3 +664,21 @@ Before considering frontend work complete, verify:
 - interactive states work with keyboard navigation
 
 The priority is a polished, coherent hackathon product with a small and predictable UI system.
+
+---
+
+## 26. PRD Progress Tracking
+
+`docs/PRD.md` is the source of truth for product scope and high-level specification, implementation, and verification status.
+
+Use its task-list checkboxes consistently:
+
+- `[ ]` means incomplete, undecided, blocked, or not yet verified.
+- `[x]` means the exact stated outcome is complete and has been verified.
+- A proposal, design discussion, or written specification is not implemented work.
+- Do not check an implementation item merely because code exists; verify the behaviour described by the item.
+- When a change completes or invalidates a tracked item, update the relevant PRD checkbox in the same change.
+- If an item is removed from scope, remove it or mark it explicitly as out of scope instead of checking it.
+- Preserve separate specification, implementation, and verification statuses when they do not complete at the same time.
+
+Keep the PRD focused on product requirements, major design decisions, and delivery status. When a subsystem needs extensive interfaces, algorithms, schemas, experiments, or test plans, place that detail in a focused document under `docs/specs/` and link it from the PRD. Do not create a separate specification document for routine or still-evolving details.
