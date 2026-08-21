@@ -39,14 +39,23 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
       <div className="battle-grid" />
       <nav className="battle-nav">
         <Button variant="bare" size="bare" className="wordmark wordmark-button" onClick={leave}>MOG<span>®</span></Button>
-        <ConnectionStatus connection={rtc.connectionState} camera={camera.status} />
+        <ConnectionStatus
+          connection={rtc.connectionState}
+          camera={camera.status}
+          candidateTypes={rtc.candidateTypes}
+          route={rtc.route}
+        />
         <Button variant="bare" size="bare" className="room-code" onClick={copyRoomCode} aria-label={`Copy room code ${roomId}`}>
           <span>ROOM</span><b>{copied ? "COPIED!" : roomId}</b><Copy aria-hidden="true" />
         </Button>
       </nav>
 
       {(camera.error || rtc.error) && (
-        <div className="error-banner"><b>{camera.error ? "CAMERA UNAVAILABLE" : "SIGNAL LOST"}</b><span>{camera.error || rtc.error}</span></div>
+        <div className="error-banner">
+          <b>{camera.error ? "CAMERA UNAVAILABLE" : rtc.connectionState === "failed" ? "NO VIDEO ROUTE" : "SIGNAL LOST"}</b>
+          <span>{camera.error || rtc.error}</span>
+          {!camera.error && <a href="/diagnostics" target="_blank" rel="noreferrer">RUN NETWORK CHECK</a>}
+        </div>
       )}
 
       <section className="arena">

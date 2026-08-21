@@ -187,8 +187,67 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .control-dock button span { font-size: .52rem; font-weight: 700; letter-spacing: .12em; }
 .control-dock .leave-control { border-right: 0; min-width: 92px; color: #ff6a90; }
 
+.route-tag { color: #8f8f95; }
+.route-tag.is-relayed { color: #ffd166; }
+
+.error-banner a { color: #ff9db6; letter-spacing: .12em; font-weight: 700; white-space: nowrap; margin-left: auto; }
+
+.diagnostics-shell {
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px),
+    #080809;
+  background-size: 58px 58px;
+}
+.diagnostics-body { position: relative; z-index: 2; width: min(760px, 92vw); margin: 0 auto; padding: 46px 0 70px; }
+.diagnostics-head { margin-bottom: 30px; }
+.eyebrow-plain { color: var(--acid); font-size: .58rem; font-weight: 800; letter-spacing: .23em; }
+.diagnostics-head h1 { margin: 14px 0 13px; font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; font-size: clamp(2.3rem, 6vw, 3.9rem); line-height: .88; letter-spacing: -.02em; }
+.diagnostics-head p { margin: 0; color: #8d8d94; font-size: .82rem; line-height: 1.6; max-width: 52ch; }
+.diagnostics-status { display: flex; align-items: center; gap: 11px; color: #8d8d94; font-size: .6rem; font-weight: 700; letter-spacing: .16em; padding: 22px 0; }
+.diagnostics-status svg { width: 16px; }
+.spin { animation: spin 1s linear infinite; }
+
+.verdict { display: flex; gap: 16px; align-items: flex-start; padding: 19px 21px; border: 1px solid var(--line); background: rgba(255,255,255,.02); }
+.verdict svg { width: 26px; flex-shrink: 0; margin-top: 2px; }
+.verdict b { display: block; font-size: .78rem; letter-spacing: .12em; margin-bottom: 7px; }
+.verdict span { color: #a0a0a7; font-size: .78rem; line-height: 1.6; }
+.verdict-good { border-color: rgba(215,255,56,.32); background: rgba(215,255,56,.05); }
+.verdict-good svg, .verdict-good b { color: var(--acid); }
+.verdict-warn { border-color: rgba(255,209,102,.32); background: rgba(255,209,102,.05); }
+.verdict-warn svg, .verdict-warn b { color: #ffd166; }
+.verdict-bad { border-color: rgba(255,61,110,.35); background: rgba(255,61,110,.06); }
+.verdict-bad svg, .verdict-bad b { color: #ff668e; }
+
+.check-list { list-style: none; margin: 22px 0 0; padding: 0; border: 1px solid var(--line); }
+.check-list li { display: grid; grid-template-columns: auto 1fr auto; gap: 5px 13px; align-items: center; padding: 15px 19px; border-bottom: 1px solid var(--line); }
+.check-list li:last-child { border-bottom: 0; }
+.check-dot { width: 7px; height: 7px; border-radius: 50%; background: #3f3f45; }
+.check-list li.is-found .check-dot { background: var(--acid); box-shadow: 0 0 11px var(--acid); }
+.check-list b { font-size: .66rem; letter-spacing: .13em; color: #86868d; }
+.check-list li.is-found b { color: #f4f4ef; }
+.check-state { font-size: .55rem; letter-spacing: .13em; color: #5e5e64; }
+.check-list li.is-found .check-state { color: var(--acid); }
+.check-list small { grid-column: 2 / -1; color: #6e6e75; font-size: .68rem; line-height: 1.5; }
+
+.probe-errors { margin-top: 20px; padding: 15px 19px; border: 1px solid var(--line); }
+.probe-errors b { display: block; font-size: .58rem; letter-spacing: .16em; color: #86868d; margin-bottom: 9px; }
+.probe-errors ul { margin: 0; padding-left: 17px; }
+.probe-errors li { color: #6e6e75; font-size: .68rem; line-height: 1.7; word-break: break-all; }
+.probe-note { margin-top: 18px; color: #63636a; font-size: .68rem; line-height: 1.6; }
+.diagnostics-actions { margin-top: 26px; display: flex; align-items: center; gap: 22px; }
+.diagnostics-actions .secondary-action:disabled { opacity: .5; cursor: not-allowed; }
+.back-link { display: flex; align-items: center; gap: 8px; color: #77777d; font-size: .58rem; font-weight: 700; letter-spacing: .15em; }
+.back-link svg { width: 14px; }
+
 @keyframes pulse { 50% { opacity: .35; } }
 @keyframes score-in { from { transform: translateY(4px); opacity: .55; } }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 800px) {
   .landing-nav { padding: 0 22px; }

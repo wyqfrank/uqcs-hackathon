@@ -3,4 +3,5 @@ node_modules/
 *.log
 *.tsbuildinfo
 .env*
+!.env.example
 certificates/
