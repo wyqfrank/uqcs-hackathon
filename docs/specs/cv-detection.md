@@ -1,10 +1,10 @@
 # CV Detection and Frame Preparation Specification
 
-**Product:** MOG  
+**Product:** FITTED
 **Status:** Draft  
 **Implementation:** Initial browser pipeline implemented; fixture calibration and live-device validation pending
 **Scope:** Live person detection, pose tracking, frame-quality validation, and canonical outfit cropping  
-**Out of scope:** Taste scoring, social-signal training, pairwise ranking, and production deployment
+**Out of scope for this implementation:** Taste scoring, source-expert training, pairwise calibration, VLM serving, and production deployment. Their contracts with detection are documented below.
 
 ## 1. Purpose
 
@@ -454,5 +454,201 @@ Decisions locked for the initial implementation:
 - missing feet are allowed when head, torso, and knee evidence is usable;
 - Chrome and Edge are the supported initial browsers;
 - selected crops remain local until the inference-transport design is specified.
+
+## 20. Webcam-like human calibration frames
+
+FITTED needs a small human-labelled calibration set whose visual domain resembles the canonical crops produced by this pipeline. This is pairwise calibration data, not enough data to pretrain or fully fine-tune a visual encoder.
+
+Start with approximately **200–400 unique images** of people wearing complete outfits and collect **500–1,000 individual A/B decisions**. Prefer:
+
+- full-body images with shoes visible;
+- mostly front-facing, neutral poses;
+- one person per image;
+- similar crop and resolution;
+- clear lighting without heavy filters;
+- varied styles, colours, silhouettes, layering and formality;
+- varied people, backgrounds, lighting and body proportions; and
+- faces blurred or excluded.
+
+Do not show likes, prices, brands, captions or popularity cues. Avoid product-only photographs, flat lays, close-ups, heavily obscured outfits and pairs where framing quality determines the answer.
+
+If frames come from video, select the best one to three representatives from a stable interval. Adjacent frames share an `outfitId`, `personId` and `sessionId`; they are not independent outfits.
+
+Construct three pair groups:
+
+1. **Clear contrasts** validate the task and rater instructions.
+2. **Close comparisons** provide high-value preference signal.
+3. **Robustness comparisons** test similar outfits across different people, backgrounds, lighting or cameras.
+
+Randomise left/right placement and include a small number of deliberately swapped duplicate pairs to measure position bias. Each image should appear in several pairings, and the comparison graph should remain connected.
+
+Use this prompt:
+
+> Which outfit is better styled as a complete look? Judge the clothing, coordination and fit—not the person, photo quality or brand.
+
+Offer `A wins`, `B wins`, `Too close` and `Cannot judge`. Treat a draw as a soft `0.5` preference target. Exclude `Cannot judge` from preference training and retain it for frame-quality evaluation.
+
+Optional reason tags may cover individual pieces, coordination, proportion, silhouette, layering and colour. Collect them on a subset of decisions to avoid rater fatigue.
+
+```ts
+type PairwiseLabel = {
+  pairId: string;
+  leftOutfitId: string;
+  rightOutfitId: string;
+  result: "left" | "right" | "draw" | "cannot_judge";
+  reasons?: Array<
+    | "components"
+    | "coordination"
+    | "proportion"
+    | "silhouette"
+    | "layering"
+    | "colour"
+  >;
+  anonymousRaterId: string;
+  responseTimeMs: number;
+};
+```
+
+Split by person, outfit and capture session before constructing pairs. Use an initial 70/15/15 train/validation/test allocation and build pairs only within each split. Never place the same image, adjacent frames, outfit session or—where possible—person/source creator across train and evaluation boundaries. Important validation and test pairs should receive multiple independent ratings so human agreement and the realistic model ceiling can be measured.
+
+## 21. Pre-labelled fashion curriculum
+
+Existing datasets should provide fashion perception and compatibility pretraining so hackathon effort is spent on FITTED-specific calibration:
+
+- [DeepFashion2](https://github.com/switchablenorms/DeepFashion2) provides clothing categories, boxes, dense landmarks, masks, viewpoint and occlusion annotations. Use it for garment localisation and visibility.
+- [Fashionpedia](https://fashionpedia.github.io/home/index.html) provides apparel masks, categories, parts and fine-grained attributes. Use it for fashion-specific segmentation and attribute representation.
+- [Polyvore Outfits](https://github.com/xthan/polyvore-dataset) provides outfit compatibility examples. Use it as optional compatibility pretraining while measuring the product-image-to-webcam domain gap.
+- [Fashionpedia-Taste](https://arxiv.org/abs/2305.02307) provides human preference explanations involving localised attributes, attention and captions. Use it as optional explanation/preference pretraining, not as a replacement for FITTED labels.
+
+Recommended curriculum:
+
+```text
+generic frozen encoder: DINOv2 Small or SigLIP 2 Base
+                         ↓
+fashion perception: DeepFashion2 / Fashionpedia
+                         ↓
+generic compatibility: Polyvore, optional
+                         ↓
+source experts: Instagram and Depop residual targets
+                         ↓
+FITTED calibration: webcam-like human A/B labels
+```
+
+The hackathon should load existing checkpoints or train small heads over cached embeddings. It should not train a detector or foundation encoder from scratch. Verify dataset and platform licences before redistribution or commercial use.
+
+## 22. Detection-to-scoring contract
+
+Detection locates evidence and establishes judgeability; it never directly determines fashion quality.
+
+```ts
+type GarmentCategory =
+  | "top"
+  | "bottoms"
+  | "dress"
+  | "outerwear"
+  | "shoes"
+  | "accessory";
+
+type GarmentDetection = {
+  category: GarmentCategory;
+  box: NormalizedRect;
+  confidence: number;
+  visibleFraction?: number;
+};
+```
+
+Garment boxes support component crops, visibility and UI overlays. Missing optional garments are removed from the score denominator, not assigned a zero. Dresses and one-piece garments must not be penalised for lacking separate tops and bottoms.
+
+Pose landmarks may support body-aware visual-fit features such as shoulder/waist alignment, visible sleeve and trouser length, proportion, layering and silhouette balance. The system must not judge body type, facial appearance, attractiveness or gender presentation. Oversized, fitted and unconventional silhouettes are valid style choices; the target is visible coherence and intentionality.
+
+The scoring representation may combine:
+
+```text
+global complete-outfit embedding
++ pose-relative upper-body crop embedding
++ pose-relative lower-body crop embedding
++ footwear crop embedding when visible
++ pose/proportion features
+```
+
+The global embedding is mandatory because whole-outfit coordination is an interaction between pieces and cannot be recovered reliably by averaging isolated crop scores.
+
+For each outfit, the later scoring service forms a compact feature vector:
+
+```text
+x = [
+  instagram_score,
+  depop_score,
+  component_quality,
+  outfit_coordination,
+  body_fit,
+  vlm_holistic_score
+]
+```
+
+Human pair labels calibrate a regularised pairwise combiner:
+
+```text
+P(A wins) = sigmoid(weights · (x(A) - x(B)) / temperature)
+```
+
+This low-capacity combiner is appropriate for 500–1,000 decisions. Direct unrestricted training on high-dimensional visual embeddings is not.
+
+## 23. VLM and temporal-video boundary
+
+At battle completion, an image-capable VLM may analyse the best synchronised pair or a short three-frame burst. Its structured response should contain component quality, whole-outfit coordination, body-aware fit, frame quality and visible clothing observations.
+
+The VLM prompt must prohibit assessment of faces, attractiveness, body type, perceived gender, brand value and popularity. The VLM is one expert and the explanation layer; it does not overwrite the application-owned deterministic combiner.
+
+Do not run a large VLM on the full webcam frame rate:
+
+```text
+30 FPS WebRTC display
+        |
+        +--> local pose/framing detection at approximately 10 FPS
+        |
+        +--> newest paired scoring sample at approximately 0.5–1 FPS
+                              |
+                       maximum one in flight
+                              |
+                     busy tick is discarded
+```
+
+StreamingVLM is deferred. The published [StreamingVLM](https://proceedings.iclr.cc/paper_files/paper/2026/hash/6445dd88ebb9a6a3afa0b126ad87fe41-Abstract-Conference.html) architecture is aimed at stable understanding of effectively infinite video and depends on streaming-specific supervised fine-tuning. Revisit it for continuous commentary, garment-movement analysis or long-session memory, not for the initial slowly changing outfit state.
+
+## 24. Thirty-hour decision gates
+
+1. Establish a working paired-image VLM response and fallback first.
+2. Prepare webcam-like calibration images and safe person/outfit/session splits.
+3. Cache DINOv2 Small and/or SigLIP 2 Base embeddings rather than fine-tuning an encoder.
+4. Train the Instagram residual head if its cleaned metadata is ready.
+5. Add Depop only if its data is ready and it improves held-out FITTED agreement.
+6. Train the small human-calibrated combiner.
+7. Integrate frame-quality states, explanation and result synchronisation.
+8. Reserve the final hours for two-laptop rehearsal and failure recovery.
+
+Stop source-expert work if the data cannot be cleaned and split safely. Do not integrate a learned ranker that fails person/creator-disjoint validation. Preserve a paired VLM-only path as the reliable demo fallback.
+
+## 25. Production runtime direction
+
+Python is appropriate for the hackathon inference service. At the intended 0.5–1 paired scoring requests per second, image preparation and model/GPU latency matter more than Python orchestration overhead.
+
+After the model is validated, production may export stable models to ONNX and benchmark TensorRT or another optimised runtime. C++ is useful for measured bottlenecks such as GPU-native decode/preprocessing, buffer reuse, tight latency, high concurrency or edge deployment. It is not necessary to rewrite the browser or orchestration layer in C++: browser WebRTC and codecs already execute in native browser code, while the application samples frames independently for inference.
+
+## 26. Calibration and expert evaluation
+
+Evaluate:
+
+- pairwise agreement with held-out human labels;
+- inter-rater agreement;
+- person-, creator-, outfit- and session-disjoint performance;
+- A/B swap invariance;
+- draw and `cannot_judge` behaviour;
+- stability across representative frames of one outfit;
+- sensitivity to background, lighting, pose and camera quality;
+- the incremental value of every expert; and
+- median and 95th-percentile live latency.
+
+Compare at least a VLM-only baseline, Instagram-only expert and human-calibrated ensemble. Remove an expert if it does not add held-out signal, regardless of its training-set performance.
 
 This document becomes **Final** only after the acceptance criteria are met and the open decisions required for the MVP are resolved.

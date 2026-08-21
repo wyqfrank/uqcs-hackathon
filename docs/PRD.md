@@ -179,9 +179,13 @@ Instagram residual expert
           +
 Depop residual expert
           +
-visual style momentum
+component, coordination and body-fit signals
+          +
+VLM holistic assessment and explanation
+          +
+visual style momentum (later)
           ↓
-source-signal ensemble
+expert ensemble
           ↓
 500–1,000 target-audience pair comparisons
           ↓
@@ -191,8 +195,9 @@ pairwise FITTED scoring function
 This is a teacher–student design:
 
 - social and commercial data provide large-scale but noisy offline supervision;
-- target-audience comparisons determine how the weak signals should be combined;
+- target-audience comparisons determine how the weak signals and VLM assessment should be combined;
 - the resulting visual scoring model runs without contacting social platforms during a live battle.
+- the VLM supplies a grounded breakdown and final explanation, but does not own the score by itself.
 
 ### Shared visual representation
 
@@ -209,7 +214,7 @@ outfit embedding
      └── momentum expert → predicted visual-style momentum
 ```
 
-The first encoder candidate is **SigLIP 2 Base** because it supports general visual representation extraction and a prompt-based zero-shot baseline.
+The first frozen-encoder experiment should benchmark **DINOv2 Small** and **SigLIP 2 Base**. DINOv2 is attractive for a lightweight learned visual ranker; SigLIP 2 also supports a prompt-based zero-shot baseline. The hackathon must not depend on full encoder fine-tuning.
 
 **FashionCLIP** should be benchmarked as a second candidate, not assumed to be better. It is fashion-specific, but its published training domain is primarily isolated product imagery rather than webcam images of people wearing complete outfits.
 
@@ -344,6 +349,45 @@ Important evaluation pairs should receive multiple independent judgements. Rater
 
 Pair selection should progress from random coverage to active learning: prioritise comparisons where the experts disagree, the current model is near 50/50, or additional labels would improve coverage.
 
+#### Webcam-like labelled image pool
+
+The calibration images must resemble the frames that FITTED will score in production. Start with approximately **200–400 unique images** of people wearing complete outfits and use them to collect the planned **500–1,000 individual A/B decisions**. Each image should appear in several different pairings.
+
+Prefer images with:
+
+- the full body visible, including shoes;
+- a mostly front-facing, neutral pose;
+- one person per image;
+- consistent crop and resolution;
+- clear lighting without heavy filters;
+- varied styles, colours, silhouettes, layering and formality;
+- varied people, backgrounds, lighting and body proportions; and
+- faces blurred or excluded so the task remains outfit-focused.
+
+Do not show likes, prices, brands, captions or popularity cues to raters. Avoid product-only images, flat lays, garment close-ups, heavily obscured outfits and comparisons where framing quality makes the answer obvious.
+
+Construct three pair groups:
+
+1. **Clear contrasts** validate that raters understand the task.
+2. **Close comparisons** provide the most useful fashion-preference signal.
+3. **Robustness comparisons** test similar outfits across different people, backgrounds and lighting.
+
+Use the prompt: **“Which outfit is better styled as a complete look? Judge the clothing, coordination and fit—not the person, photo quality or brand.”**
+
+Randomise left/right placement and build train, validation and test splits by person, outfit and capture session before constructing pairs. An image or adjacent frame from the same outfit must never cross split boundaries. Important validation and test pairs should receive multiple independent ratings so inter-rater agreement and the realistic model ceiling can be measured.
+
+Optional reason tags may capture coordination, proportions, individual pieces, layering and colour. They should be collected on only a subset of decisions to avoid slowing the primary A/B task. `Cannot judge` labels train frame-quality rejection; they do not participate in preference training.
+
+This dataset calibrates a low-capacity pairwise combiner over frozen expert outputs. It is not large enough to train or fully fine-tune a visual encoder from scratch.
+
+### VLM role
+
+For the hackathon, an image-capable VLM analyses the best synchronised frame pair when a battle is frozen or finalised. It returns structured component-quality, whole-outfit coordination, body-aware fit, frame-quality and explanation fields. The application combines numerical signals deterministically and may use the VLM explanation in the final result experience.
+
+The VLM should not continuously process the 30 FPS webcam stream. Live video remains independent; the comparison service samples the newest paired frames at approximately 0.5–1 FPS, permits one request in flight and discards stale work. A final three-frame burst may be used to reduce sensitivity to a single pose.
+
+Streaming-video VLMs are a post-hackathon investigation for continuous commentary, garment movement or long-session memory. They are not required for outfit scoring, where the visual state changes slowly relative to the video frame rate.
+
 ### Final FITTED scoring function
 
 For a human-labelled pair, the calibration model compares the source-expert predictions:
@@ -355,7 +399,8 @@ features(A, B) = [
   momentum(A) - momentum(B),
   component_quality(A) - component_quality(B),
   outfit_coordination(A) - outfit_coordination(B),
-  body_fit(A) - body_fit(B)
+  body_fit(A) - body_fit(B),
+  vlm_holistic(A) - vlm_holistic(B)
 ]
 ```
 
@@ -369,6 +414,7 @@ FITTED(A) =
   + weight_component × component_quality(A)
   + weight_outfit    × outfit_coordination(A)
   + weight_body_fit  × body_fit(A)
+  + weight_vlm       × vlm_holistic(A)
 
 P(A wins) = sigmoid((FITTED(A) - FITTED(B)) / temperature)
 ```
@@ -456,7 +502,7 @@ Exact acceptance thresholds remain **TBD** until a baseline has been measured.
 - Which engagement and demand metrics are available for residual construction?
 - Which confounding variables can be measured for each source?
 - What image pool and held-out evaluation set will be used?
-- Should SigLIP 2 Base be the primary encoder?
+- Does DINOv2 Small or SigLIP 2 Base provide the stronger frozen representation on person-disjoint FITTED comparisons?
 - Do Instagram and Depop experts add independent out-of-sample signal?
 - Does visual style momentum add useful signal after the first two experts?
 - Is full encoder fine-tuning eventually required?
@@ -492,6 +538,15 @@ Add a small Python inference service with:
 - `GET /health` for demo readiness;
 - models loaded once at service startup;
 - no database and no retained frames for the prototype.
+
+The hackathon inference service should combine, in priority order:
+
+1. a working paired-image VLM response with structured output;
+2. an Instagram residual expert built on cached frozen image embeddings, if the cleaned source data is ready;
+3. a Depop expert only if it improves held-out FITTED comparisons; and
+4. lightweight person, garment-visibility and pose signals described in [`cv-detection.md`](./specs/cv-detection.md).
+
+The VLM is used at battle completion for holistic assessment and explanation. A StreamingVLM deployment, continuous 30 FPS model inference, full visual-encoder fine-tuning and production C++/TensorRT optimisation are explicitly deferred until after the scoring concept is validated.
 
 Initially, the host browser can capture the latest local and remote video frames, send them together to `/v1/compare`, and relay the resulting battle state to the guest through the existing room connection. This avoids duplicate inference and guarantees that each result is based on one explicit image pair.
 
@@ -600,9 +655,11 @@ Only record choices here once the team has agreed to them.
 | ML formulation | Source experts combined into a pairwise FITTED score | Current direction | Instagram and Depop first; style momentum later if useful |
 | Visual score composition | Component quality 45%, whole-outfit coordination 30%, body-aware fit 25% | Initial prototype decision | Deterministic defaults; learn constrained weights from target-audience labels later |
 | Personal attributes | Face and body type excluded from the competitive score | Decided | Body-aware analysis measures garment fit and styling proportions only |
-| Primary encoder | SigLIP 2 Base | Proposed | Benchmark against FashionCLIP on representative data |
+| Primary encoder | Benchmark DINOv2 Small and SigLIP 2 Base | Proposed | Use frozen embeddings; do not make full fine-tuning a hackathon dependency |
 | Training | Frozen encoder, source-specific experts, pairwise logistic combiner | Current direction | Human A/B labels learn expert weights and calibration |
-| Human labels | 500–1,000 target-audience A/B decisions | Initial plan | Use repeated judgements for important evaluation pairs |
+| Human labels | 200–400 webcam-like outfits and 500–1,000 target-audience A/B decisions | Initial plan | Split by person/outfit/session; repeat important evaluation pairs |
+| VLM role | Final holistic assessment and explanation | Current direction | Structured paired-image output; deterministic application-owned combiner |
+| StreamingVLM | Deferred | Decided for hackathon | Revisit for continuous commentary, garment movement or long-session memory |
 | Inference location | Separate Python service | Proposed | Keeps ML dependencies out of the working signalling server |
 | Frame transport | Paired HTTP request from the host | Proposed for first version | Revisit if remote-stream quality creates bias |
 | Nice-to-have scope | TBD | Open | Decide after core-flow validation |
