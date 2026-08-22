@@ -1,4 +1,10 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { loadEnvFile } from "node:process";
+import { fileURLToPath } from "node:url";
+
+const environmentPath = fileURLToPath(new URL("../.env", import.meta.url));
+if (existsSync(environmentPath)) loadEnvFile(environmentPath);
 
 const npmCli = process.env.npm_execpath;
 const npmCommand = npmCli ? process.execPath : process.platform === "win32" ? "npm.cmd" : "npm";
