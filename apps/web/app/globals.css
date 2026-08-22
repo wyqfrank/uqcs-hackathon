@@ -1373,11 +1373,10 @@ kbd {
   place-items: center;
   padding: 24px;
   animation: overlay-in .18s ease-out;
+  /* The battle is over here, so the verdict takes the screen. */
+  background: rgba(11, 11, 11, .88);
+  backdrop-filter: blur(6px);
 }
-/* Countdown: players are still framing, so keep the feeds readable. */
-.battle-overlay.is-light { background: rgba(11, 11, 11, .45); backdrop-filter: blur(2px); }
-/* Result: the battle is over, so the verdict takes the screen. */
-.battle-overlay.is-heavy { background: rgba(11, 11, 11, .88); backdrop-filter: blur(6px); }
 
 .battle-overlay-panel {
   position: relative;
@@ -1390,42 +1389,47 @@ kbd {
   max-height: 92vh;
   overflow-y: auto;
 }
-.is-heavy .battle-overlay-panel {
+.battle-overlay-panel.is-panel, .battle-overlay-panel {
   padding: 34px 34px 26px;
   background: var(--panel);
   box-shadow: var(--raised), var(--drop);
 }
 
-/* --- Countdown ---------------------------------------------------------- */
+/* --- Round timer (non-blocking) ------------------------------------------ */
 
-.countdown-eyebrow,
-.result-eyebrow {
+/* Sits in the gutter between the panels so neither player is covered, and
+   never intercepts pointer events — the round is live underneath it. */
+.round-timer {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.round-timer-eyebrow {
   font-family: var(--font-arcade), monospace;
-  font-size: 1.25rem;
-  letter-spacing: .28em;
+  font-size: 1.15rem;
+  letter-spacing: .3em;
   text-transform: uppercase;
   color: var(--ko);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .95);
 }
-/* Arcade face, not the graffiti one: numerals in the display face are too
-   abstract to read at a glance — the same reason the score uses VT323. */
-.countdown-number {
+.round-timer-number {
   display: block;
   font-family: var(--font-arcade), monospace;
-  font-size: clamp(8rem, 30vw, 20rem);
-  line-height: .82;
+  font-size: clamp(4rem, 9vw, 7rem);
+  line-height: .9;
   color: #fff;
-  text-shadow: 8px 8px 0 #000, 0 0 60px rgba(255, 106, 0, .35);
   transform: skewX(var(--skew));
-  /* steps() so it ticks like a cabinet rather than easing like a web page. */
-  animation: countdown-pop .34s steps(5, end);
-}
-.countdown-hint {
-  margin: 0;
-  font-family: var(--font-arcade), monospace;
-  font-size: 1.3rem;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  color: var(--text-dim);
+  /* Heavy shadow instead of a scrim: legible over any feed without hiding it. */
+  text-shadow: 5px 5px 0 #000, 0 0 26px rgba(0, 0, 0, .95), 0 0 60px rgba(255, 106, 0, .5);
+  animation: countdown-pop .3s steps(4, end);
 }
 
 /* --- Result ------------------------------------------------------------- */
@@ -1519,7 +1523,7 @@ kbd {
 }
 
 @media (max-width: 620px) {
-  .is-heavy .battle-overlay-panel { padding: 22px 18px 20px; }
+  .battle-overlay-panel.is-panel, .battle-overlay-panel { padding: 22px 18px 20px; }
   .result-row { font-size: 1.05rem; padding: 6px 10px; gap: 8px; }
   .result-explanation { font-size: 1.1rem; }
 }

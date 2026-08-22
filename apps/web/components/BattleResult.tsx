@@ -33,7 +33,7 @@ export function BattleResult({
     return (
       <div className="battle-result pending" aria-hidden="true">
         <span>ROUND LIVE</span>
-        <strong>STARTING IN 00:{seconds}</strong>
+        <strong>SCORING · 00:{seconds} LEFT</strong>
       </div>
     );
   }

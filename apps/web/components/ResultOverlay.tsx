@@ -34,7 +34,7 @@ export function ResultOverlay({
   ] as const;
 
   return (
-    <BattleOverlay tone="heavy" label="Final result">
+    <BattleOverlay label="Final result">
       <Button
         variant="ghost"
         size="icon"
