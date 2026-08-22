@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import base64
+import logging
 from collections.abc import Sequence
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+logger = logging.getLogger(__name__)
 
 BASE_PROMPT = """You are the final outfit-comparison assessor for FITTED.
 Judge only visible clothing and styling. Assess both labelled players with the same rubric.
@@ -209,6 +212,14 @@ class GeminiVlmProvider:
         try:
             return VlmAssessment.model_validate_json(output_text)
         except ValidationError as error:
+            # Log what actually came back. Without it an invalid assessment is
+            # indistinguishable from a transport fault, and the schema mismatch
+            # is the only thing that identifies which field the model got wrong.
+            logger.warning(
+                "Gemini assessment failed schema validation: %s | raw=%s",
+                error.errors(include_url=False),
+                output_text[:1200],
+            )
             raise VlmProviderInvalidResponseError(
                 "Gemini returned an invalid assessment."
             ) from error
