@@ -625,7 +625,7 @@ def create_garment_detector(settings: Settings) -> GarmentDetector:
         return RFDetrGarmentDetector(
             checkpoint_path=settings.garment_checkpoint_path,
             threshold=settings.garment_box_threshold,
-            device=settings.garment_device or "cuda",
+            device=settings.garment_device or default_accelerator(),
         )
     if not settings.garment_model_id:
         return UnavailableGarmentDetector()
