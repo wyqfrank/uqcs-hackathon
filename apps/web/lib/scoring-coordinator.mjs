@@ -160,6 +160,9 @@ export class ScoringCoordinator {
     this.readinessRooms = new Map();
     this.rooms = new Map();
     this.perceptionRooms = new Map();
+    // Rooms where the inference service reported no ranker artifact. Live fit
+    // scoring is skipped for these rather than retried every second.
+    this.fitScoreUnavailable = new Set();
   }
 
   attachSocket(socket) {
@@ -621,6 +624,13 @@ export class ScoringCoordinator {
     state.deadlineAt = 0;
     state.frames = { player_a: null, player_b: null };
 
+    // Live fit scores ride the same pair: already person-cropped, already
+    // validated for skew, already on one clock. A second 1 FPS channel would
+    // sample the two players at unrelated moments and make the comparison
+    // meaningless. Deliberately not awaited — garment perception and fit
+    // scoring fail independently.
+    void this.scoreFitPair(roomId, state, pairId, playerA, playerB);
+
     const form = new FormData();
     form.set("battle_id", roomId);
     form.set("pair_id", pairId);
@@ -683,6 +693,58 @@ export class ScoringCoordinator {
         state.inFlight = false;
         state.abortController = null;
       }
+    }
+  }
+
+  async scoreFitPair(roomId, state, pairId, playerA, playerB) {
+    if (this.fitScoreUnavailable.has(roomId)) return;
+
+    const form = new FormData();
+    form.set("battle_id", roomId);
+    form.set("pair_id", pairId);
+    form.set("player_a_sample_id", playerA.sampleId);
+    form.set("player_b_sample_id", playerB.sampleId);
+    form.set("player_a", new Blob([playerA.image], { type: playerA.mimeType }), "player-a.webp");
+    form.set("player_b", new Blob([playerB.image], { type: playerB.mimeType }), "player-b.webp");
+
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), this.perceptionTimeoutMs);
+    timeout.unref?.();
+    try {
+      const response = await this.fetchImpl(`${this.inferenceUrl}/v1/fit-score/pair`, {
+        method: "POST",
+        body: form,
+        signal: abortController.signal,
+      });
+      if (!response.ok) {
+        // 503 means no artifact is loaded. That will not fix itself mid-battle,
+        // so stop asking rather than spending a request a second on it.
+        if (response.status === 503) this.fitScoreUnavailable.add(roomId);
+        return;
+      }
+      const result = await response.json();
+      if (
+        result?.battleId !== roomId
+        || result?.pairId !== pairId
+        || result?.playerASampleId !== playerA.sampleId
+        || result?.playerBSampleId !== playerB.sampleId
+      ) {
+        // Mismatched identity means these scores belong to other frames.
+        return;
+      }
+      if (this.perceptionRooms.get(roomId) !== state) return;
+      this.io.to(roomId).emit("fit-score", {
+        battleId: roomId,
+        pairId,
+        playerAScore: result.playerA?.score ?? null,
+        playerBScore: result.playerB?.score ?? null,
+        modelVersion: result.modelVersion ?? null,
+      });
+    } catch {
+      // A dropped live estimate is not worth surfacing: the next frame pair is
+      // a second away, and finalisation does not depend on this path.
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -1026,6 +1088,9 @@ export class ScoringCoordinator {
   }
 
   stopPerception(roomId) {
+    // Cleared here so a room that reconnects gets a fresh attempt: the service
+    // may have been restarted with an artifact since it last said 503.
+    this.fitScoreUnavailable.delete(roomId);
     const state = this.perceptionRooms.get(roomId);
     if (!state) return;
     this.perceptionRooms.delete(roomId);

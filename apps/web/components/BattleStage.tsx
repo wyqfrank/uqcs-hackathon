@@ -57,6 +57,8 @@ export type BattleStageProps = {
     isLocked: boolean;
     canRematch: boolean;
     scoresAreProvisional: boolean;
+    /** Which model produced the live estimates; null when none has reported. */
+    liveModelVersion?: string | null;
     error: string | null;
     canFinalise: boolean;
   };
@@ -103,6 +105,13 @@ export function BattleStage({
         <Button variant="bare" size="bare" className="room-code" onClick={onCopyRoomCode} aria-label={`Copy room code ${roomId}`}>
           <span>ROOM</span><b>{copied ? "COPIED!" : roomId}</b><Copy aria-hidden="true" />
         </Button>
+        {/* Only while live estimates are on screen. Naming the model beside a
+            number the model did not produce would be worse than saying nothing. */}
+        {scoring.scoresAreProvisional && scoring.liveModelVersion && (
+          <span className="live-model-tag" title="Model producing the live estimates">
+            <i aria-hidden="true" />LIVE<code>{scoring.liveModelVersion}</code>
+          </span>
+        )}
       </nav>
 
       {/* Camera and connection can fail independently, so neither hides the other. */}

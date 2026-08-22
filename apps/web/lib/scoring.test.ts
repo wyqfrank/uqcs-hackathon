@@ -3,7 +3,6 @@ import {
   countdownSeconds,
   isCurrentScoreResult,
   localPlayerWon,
-  provisionalScoresForRound,
   scoresForRole,
   type FinalScoreResult,
 } from "./scoring";
@@ -44,18 +43,4 @@ describe("authoritative score presentation", () => {
     expect(countdownSeconds(30_000, 31_000)).toBe(0);
   });
 
-  it("creates shared deterministic live estimates inside the demo range", () => {
-    const first = provisionalScoresForRound("round-1", 30);
-    expect(provisionalScoresForRound("round-1", 30)).toEqual(first);
-    expect(first.playerA).toBeGreaterThanOrEqual(55);
-    expect(first.playerA).toBeLessThanOrEqual(85);
-    expect(first.playerB).toBeGreaterThanOrEqual(55);
-    expect(first.playerB).toBeLessThanOrEqual(85);
-  });
-
-  it("updates the live estimate every half-second", () => {
-    expect(provisionalScoresForRound("round-1", 29.75)).not.toEqual(
-      provisionalScoresForRound("round-1", 29.25),
-    );
-  });
 });

@@ -133,12 +133,35 @@ function resultFromForm(form, overrides = {}) {
   };
 }
 
-test("pairs live garment frames by server role", async () => {
-  const requests = [];
-  const { coordinator, io, host, guest } = setup(async (_url, options) => {
-    requests.push(options.body);
+/**
+ * One paired set of frames now feeds two endpoints: garment perception and the
+ * live fit score. This stub answers whichever was asked for, so a test can
+ * assert on either without the other's shape leaking into it.
+ */
+function perceptionFetch(requests, { fitStatus = 200 } = {}) {
+  return async (url, options) => {
+    requests.push({ url, body: options.body });
+    if (String(url).includes("/v1/fit-score/pair")) {
+      if (fitStatus !== 200) {
+        return { ok: false, status: fitStatus, json: async () => ({ detail: "no artifact" }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          battleId: "FIT-1234",
+          pairId: options.body.get("pair_id"),
+          playerASampleId: options.body.get("player_a_sample_id"),
+          playerBSampleId: options.body.get("player_b_sample_id"),
+          playerA: { score: 71.5 },
+          playerB: { score: 64.2 },
+          modelVersion: "dinov2s-pca-linear-v1",
+        }),
+      };
+    }
     return {
       ok: true,
+      status: 200,
       json: async () => ({
         battleId: "FIT-1234",
         pairId: options.body.get("pair_id"),
@@ -148,7 +171,99 @@ test("pairs live garment frames by server role", async () => {
         playerB: { categories: [] },
       }),
     };
+  };
+}
+
+const garmentRequests = (requests) =>
+  requests.filter((entry) => entry.url.includes("/v1/garments/pair"));
+const eventNamed = (io, name) => io.events.filter((event) => event.name === name).at(-1);
+
+async function submitPair(coordinator, host, guest) {
+  const state = coordinator.perceptionRooms.get("FIT-1234");
+  coordinator.requestGarmentFrames("FIT-1234", state);
+  coordinator.submitGarmentFrame(guest, garmentFrame(state.requestId, "guest-garment", 7), () => {});
+  coordinator.submitGarmentFrame(host, garmentFrame(state.requestId, "host-garment", 3), () => {});
+  await flush();
+  await flush();
+  return state;
+}
+
+test("scores both players from the same frame pair", async () => {
+  const requests = [];
+  const { coordinator, io, host, guest } = setup(perceptionFetch(requests));
+  await submitPair(coordinator, host, guest);
+
+  const fit = requests.filter((entry) => entry.url.includes("/v1/fit-score/pair"));
+  assert.equal(fit.length, 1);
+  // The same crops the garment comparison used: one clock, one pair.
+  assert.equal(fit[0].body.get("player_a_sample_id"), "host-garment");
+  assert.equal(fit[0].body.get("player_b_sample_id"), "guest-garment");
+
+  const event = eventNamed(io, "fit-score");
+  assert.equal(event.payload.playerAScore, 71.5);
+  assert.equal(event.payload.playerBScore, 64.2);
+  assert.equal(event.payload.modelVersion, "dinov2s-pca-linear-v1");
+});
+
+test("a fit score for the wrong frames is discarded", async () => {
+  const requests = [];
+  const { coordinator, io, host, guest } = setup(async (url, options) => {
+    requests.push({ url, body: options.body });
+    if (String(url).includes("/v1/fit-score/pair")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          battleId: "FIT-1234",
+          pairId: options.body.get("pair_id"),
+          playerASampleId: "someone-elses-frame",
+          playerBSampleId: "guest-garment",
+          playerA: { score: 99 },
+          playerB: { score: 1 },
+          modelVersion: "dinov2s-pca-linear-v1",
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({
+      battleId: "FIT-1234",
+      pairId: options.body.get("pair_id"),
+      playerASampleId: "host-garment",
+      playerBSampleId: "guest-garment",
+      playerA: { categories: [] },
+      playerB: { categories: [] },
+    }) };
   });
+  await submitPair(coordinator, host, guest);
+
+  // Showing a score computed from another player's frame is worse than
+  // showing none, so identity mismatch drops the result silently.
+  assert.equal(eventNamed(io, "fit-score"), undefined);
+});
+
+test("a missing ranker stops fit scoring instead of retrying every second", async () => {
+  const requests = [];
+  const { coordinator, io, host, guest } = setup(perceptionFetch(requests, { fitStatus: 503 }));
+  await submitPair(coordinator, host, guest);
+  assert.equal(eventNamed(io, "fit-score"), undefined);
+
+  await submitPair(coordinator, host, guest);
+  const fit = requests.filter((entry) => entry.url.includes("/v1/fit-score/pair"));
+  assert.equal(fit.length, 1);
+});
+
+test("garment perception still works when fit scoring fails", async () => {
+  const requests = [];
+  const { coordinator, io, host, guest } = setup(perceptionFetch(requests, { fitStatus: 500 }));
+  await submitPair(coordinator, host, guest);
+
+  // The two ride the same frames but must fail independently.
+  assert.ok(eventNamed(io, "garment-result"));
+  assert.equal(eventNamed(io, "fit-score"), undefined);
+});
+
+test("pairs live garment frames by server role", async () => {
+  const requests = [];
+  const { coordinator, io, host, guest } = setup(perceptionFetch(requests));
   const state = coordinator.perceptionRooms.get("FIT-1234");
   coordinator.requestGarmentFrames("FIT-1234", state);
   coordinator.submitGarmentFrame(
@@ -163,17 +278,18 @@ test("pairs live garment frames by server role", async () => {
   );
   await flush();
 
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].get("player_a_sample_id"), "host-garment");
-  assert.equal(requests[0].get("player_b_sample_id"), "guest-garment");
-  assert.equal(io.events.at(-1).name, "garment-result");
-  assert.deepEqual(io.events.at(-1).payload.playerACropBox, {
+  const garment = garmentRequests(requests);
+  assert.equal(garment.length, 1);
+  assert.equal(garment[0].body.get("player_a_sample_id"), "host-garment");
+  assert.equal(garment[0].body.get("player_b_sample_id"), "guest-garment");
+  const result = eventNamed(io, "garment-result");
+  assert.deepEqual(result.payload.playerACropBox, {
     x: 0.1,
     y: 0.05,
     width: 0.8,
     height: 0.9,
   });
-  assert.deepEqual(io.events.at(-1).payload.playerBCropBox, {
+  assert.deepEqual(result.payload.playerBCropBox, {
     x: 0.1,
     y: 0.05,
     width: 0.8,

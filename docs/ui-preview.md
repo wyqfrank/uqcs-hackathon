@@ -158,3 +158,27 @@ verdict on the outfit in absolute terms.
 - No second player, so nothing exercises the signalling or the peer
   connection. Live model mode scores your camera only; the opponent panel stays
   a placeholder.
+
+### Live model mode is not a preview of the battle's live score
+
+Both run the same trained model on the same person crop, but they reach it
+differently, and only the room's path ships:
+
+| | Preview ◉ LIVE MODEL | Real battle room |
+|---|---|---|
+| Trigger | client 1 FPS timer | server-owned frame request |
+| Endpoint | `/v1/fit-score` | `/v1/fit-score/pair` |
+| Players | local only | both, paired on one clock |
+| Smoothing | EMA | none |
+| Delivery | HTTP response | `fit-score` socket event |
+
+The split is deliberate — the diagnostic needs one camera, raw margins and no
+pairing — but it means the preview cannot show paired sampling, the
+identity-mismatch drop, the 503 backoff, or how the number reads unsmoothed.
+
+`BattleStage` is still a pure function of props, so the *visuals* cannot drift.
+What feeds the score prop now has two implementations.
+
+Note also that **▶ PLAY ROUND's drifting live estimate is now fiction**: it is a
+random walk, and production no longer has any seeded fallback, so a real battle
+with no model shows an empty bar instead.

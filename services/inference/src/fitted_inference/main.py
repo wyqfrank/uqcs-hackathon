@@ -34,6 +34,7 @@ from .ranker import (
 from .schemas import (
     ComparisonResponse,
     FitScoreHealthResponse,
+    FitScorePairResponse,
     FitScoreResponse,
     GarmentHealthResponse,
     GarmentPairResponse,
@@ -211,6 +212,52 @@ async def fit_score(
         raw=result.raw,
         model_version=ranker.model_version,
         latency_ms=result.latency_ms,
+    )
+
+
+@app.post("/v1/fit-score/pair", response_model=FitScorePairResponse)
+async def fit_score_pair(
+    request: Request,
+    battle_id: Annotated[str, Form(min_length=1, max_length=64)],
+    pair_id: Annotated[str, Form(min_length=1, max_length=128)],
+    player_a_sample_id: Annotated[str, Form(min_length=1, max_length=128)],
+    player_b_sample_id: Annotated[str, Form(min_length=1, max_length=128)],
+    player_a: Annotated[UploadFile, File(description="Player A person crop")],
+    player_b: Annotated[UploadFile, File(description="Player B person crop")],
+) -> FitScorePairResponse:
+    """Score both players from one paired set of frames.
+
+    Sample identity is echoed back so the caller can prove the scores belong to
+    the frames it sent; the coordinator drops any response that does not match.
+    """
+    frame_a = await read_image(player_a)
+    frame_b = await read_image(player_b)
+    ranker = get_fit_ranker(request)
+    try:
+        result_a = await run_in_threadpool(ranker.score, frame_a)
+        result_b = await run_in_threadpool(ranker.score, frame_b)
+    except RankerModelNotReadyError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except InvalidRankerImageError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    def to_response(result) -> FitScoreResponse:
+        return FitScoreResponse(
+            score=result.score,
+            percentile=result.percentile,
+            raw=result.raw,
+            model_version=ranker.model_version,
+            latency_ms=result.latency_ms,
+        )
+
+    return FitScorePairResponse(
+        battle_id=battle_id,
+        pair_id=pair_id,
+        player_a_sample_id=player_a_sample_id,
+        player_b_sample_id=player_b_sample_id,
+        player_a=to_response(result_a),
+        player_b=to_response(result_b),
+        model_version=ranker.model_version,
     )
 
 

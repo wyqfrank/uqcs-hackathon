@@ -1628,3 +1628,32 @@ kbd {
 .model-note { color: var(--text-dim); margin: 0; }
 .model-error { color: var(--ko); margin: 0; }
 .model-help { color: var(--text-dim); margin: 0; font-size: 11px; line-height: 1.45; }
+
+.model-framing {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--panel-3);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.model-framing.is-ok { color: var(--p2); }
+
+.live-model-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text-dimmer);
+  font-size: 10px;
+  letter-spacing: .1em;
+}
+.live-model-tag i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--p2);
+}
+.live-model-tag code { color: var(--text-dim); letter-spacing: 0; }

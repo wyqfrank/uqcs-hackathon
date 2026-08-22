@@ -83,6 +83,22 @@ class FitScoreResponse(ApiModel):
     latency_ms: float
 
 
+class FitScorePairResponse(ApiModel):
+    """Both players' live scores from one paired set of frames.
+
+    Paired rather than two independent calls so the two numbers describe the
+    same instant. Scored seconds apart, two moving players are not comparable.
+    """
+
+    battle_id: str
+    pair_id: str
+    player_a_sample_id: str
+    player_b_sample_id: str
+    player_a: FitScoreResponse
+    player_b: FitScoreResponse
+    model_version: str
+
+
 class GarmentPairResponse(ApiModel):
     battle_id: str
     pair_id: str

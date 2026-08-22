@@ -260,9 +260,18 @@ of the training-image score distribution — so a raw margin becomes a percentil
 and then a display score without the app knowing anything about the head. Swap
 the artifact and the mapping swaps with it.
 
-The preview route's **◉ LIVE MODEL** mode runs it against a real camera with a
-diagnostic readout. **The remaining work is the battle path**: per-player
-scoring through the round coordinator, and deciding leaning-vs-leader in the UI.
+The battle path is wired too. Live scores ride the frame pair the garment path
+already collects: person-cropped, skew-validated, one clock, so both players are
+scored at the same instant. A second 1 FPS channel would have sampled them
+seconds apart, which makes a comparison meaningless. `scoreFitPair` in
+`scoring-coordinator.mjs` posts to `/v1/fit-score/pair` and emits `fit-score`;
+`useBattleScoring` accepts it only during the countdown. The seeded fake is
+deleted, so an unavailable model now shows an empty bar rather than a number.
+
+That coupling is deliberate but real: **no garment perception means no live
+score**, and a solo player produces no pair and therefore no score at all.
+
+**Still open: leaning-vs-leader in the UI**, and the webcam check below.
 
 ### Before it reaches a real battle
 

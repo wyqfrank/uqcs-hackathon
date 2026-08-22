@@ -73,8 +73,13 @@ This checklist is the high-level source of truth for specification and implement
       readout of raw spread and latency.
 - [ ] The live ranker is verified on real webcam frames: stable across frames of
       one outfit, and ordering two visibly different outfits correctly.
-- [ ] The live battle shows a model-derived score instead of the seeded
-      placeholder in `apps/web/lib/scoring.ts`.
+- [x] The live battle shows a model-derived score instead of the seeded
+      placeholder, which is deleted. Both players are scored from one paired set
+      of person crops on the garment path's 1 FPS clock, so the two numbers
+      describe the same instant; the round nav labels the model producing them.
+      With no model available the live bar is empty rather than invented.
+- [ ] Two connected players are observed running a real battle end to end on the
+      live ranker.
 - [x] Scoring-head capacity and function class are evaluated and rejected as the
       bottleneck. PCA dimensions are flat to 384 (no compression), and a ReLU MLP
       head is *worse* than linear on held-out teacher fidelity (0.655-0.663 versus

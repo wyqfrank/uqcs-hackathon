@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { FitScoreSample, LiveFitScoreState } from "@/hooks/useLiveFitScore";
 import type { LiveFitScore } from "@/lib/fitScore";
 import type { CameraStatus } from "@/hooks/useCamera";
+import type { DetectorState } from "@/lib/cv/types";
 
 type Props = {
   fit: {
@@ -13,14 +14,18 @@ type Props = {
     history: FitScoreSample[];
     error: string | null;
     modelVersion: string | null;
+    scoreable: boolean;
+    framingLabel: string;
   };
   cameraStatus: CameraStatus;
+  detectorState: DetectorState;
 };
 
 const STATE_LABELS: Record<LiveFitScoreState, string> = {
   idle: "IDLE",
   checking: "LOADING MODEL",
   unavailable: "MODEL UNAVAILABLE",
+  waiting_for_frame: "NOT SCORING",
   scoring: "SCORING",
   error: "ERROR",
 };
@@ -50,7 +55,7 @@ function median(values: number[]) {
  * - **Separation** — step out, change into something clearly different, step
  *   back. The bands should not overlap.
  */
-export function LiveModelReadout({ fit, cameraStatus }: Props) {
+export function LiveModelReadout({ fit, cameraStatus, detectorState }: Props) {
   const stats = useMemo(() => {
     const raws = fit.history.map((sample) => sample.raw);
     if (raws.length < 2) return null;
@@ -91,6 +96,16 @@ export function LiveModelReadout({ fit, cameraStatus }: Props) {
         <code>{fit.modelVersion ?? "—"}</code>
         {cameraStatus !== "ready" ? <span className="model-note">camera {cameraStatus}</span> : null}
       </header>
+
+      {/* Without this line a paused sparkline looks like a rock-steady model
+          rather than a player who has wandered out of frame. */}
+      <p className={`model-framing ${fit.scoreable ? "is-ok" : ""}`}>
+        {detectorState === "loading"
+          ? "Starting the fit detector…"
+          : fit.scoreable
+            ? "Framing OK — scoring"
+            : `Not scoring · ${fit.framingLabel}`}
+      </p>
 
       {fit.error ? (
         <p className="model-error">{fit.error}</p>
@@ -151,9 +166,10 @@ export function LiveModelReadout({ fit, cameraStatus }: Props) {
           )}
 
           <p className="model-help">
-            Hold still — raw spread should stay tight. Then change into a visibly
-            different outfit; the two ranges should not overlap. If they do, the
-            score is not reading the outfit.
+            Scores only the person crop, and only while your whole fit is in
+            frame. Hold still — raw spread should stay tight. Then change into a
+            visibly different outfit; the two ranges should not overlap. If they
+            do, the score is not reading the outfit.
           </p>
         </>
       )}

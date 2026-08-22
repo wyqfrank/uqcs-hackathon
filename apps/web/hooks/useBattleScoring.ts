@@ -7,7 +7,6 @@ import type { OutfitDetectionController } from "@/lib/cv/types";
 import {
   countdownSeconds,
   isCurrentScoreResult,
-  provisionalScoresForRound,
   type BattleScoringState,
   type ProvisionalScorePair,
   type ScoreResult,
@@ -31,6 +30,21 @@ type RoundStarted = {
   roundId: string;
   serverNow: number;
   endsAt: number;
+};
+
+/**
+ * A live fit score for both players, from one paired set of frames.
+ *
+ * Paired on the server rather than each client scoring itself: two players
+ * sampled seconds apart are not comparable, and the number on screen is a
+ * comparison.
+ */
+type FitScoreEvent = {
+  battleId: string;
+  pairId: string;
+  playerAScore: number | null;
+  playerBScore: number | null;
+  modelVersion: string | null;
 };
 
 type RoundCancelled = {
@@ -93,6 +107,10 @@ export function useBattleScoring(
   });
   const [requestError, setRequestError] = useState<string | null>(null);
   const [provisionalScores, setProvisionalScores] = useState<ProvisionalScorePair | null>(null);
+  // Which model produced the live estimates, surfaced so the screen can label
+  // them. Null while no model has reported in, which is also how the UI knows
+  // the live numbers are absent rather than merely unchanged.
+  const [liveModelVersion, setLiveModelVersion] = useState<string | null>(null);
   const activeFinalisationRef = useRef<string | null>(null);
   const submittedRequestsRef = useRef(new Set<string>());
   const readinessRef = useRef({ playerAReady: false, playerBReady: false });
@@ -102,6 +120,10 @@ export function useBattleScoring(
   const captureFallbackCandidate = detection.captureFallbackCandidate;
   const frameStatusRef = useRef(detection.result?.stableStatus ?? null);
   frameStatusRef.current = detection.result?.stableStatus ?? null;
+  // Read by the fit-score handler, which must not resubscribe on every phase
+  // change just to know whether the round is still open.
+  const phaseRef = useRef(state.phase);
+  phaseRef.current = state.phase;
   const detectorStateRef = useRef(detection.detectorState);
   detectorStateRef.current = detection.detectorState;
 
@@ -263,17 +285,24 @@ export function useBattleScoring(
       const updateCountdown = () => {
         if (!active) return;
         const now = performance.now();
-        const remainingSeconds = Math.max(0, localDeadline - now) / 1000;
         const secondsRemaining = countdownSeconds(localDeadline, now);
         setState({
           phase: "countdown",
           roundId: event.roundId,
           secondsRemaining,
         });
-        setProvisionalScores(provisionalScoresForRound(event.roundId, remainingSeconds));
       };
       updateCountdown();
       countdownTimerRef.current = setInterval(updateCountdown, COUNTDOWN_TICK_MS);
+    };
+    const onFitScore = (event: FitScoreEvent) => {
+      if (event.battleId !== roomId) return;
+      // Only during the scored window. A live estimate arriving after the round
+      // has closed would overwrite the number the reveal is about to explain.
+      if (phaseRef.current !== "countdown") return;
+      if (event.playerAScore === null || event.playerBScore === null) return;
+      setProvisionalScores({ playerA: event.playerAScore, playerB: event.playerBScore });
+      setLiveModelVersion(event.modelVersion);
     };
     const onRoundCancelled = (event: RoundCancelled) => {
       if (event.battleId !== roomId) return;
@@ -351,6 +380,7 @@ export function useBattleScoring(
     socket.on("score-round-starting", onRoundStarting);
     socket.on("score-round-started", onRoundStarted);
     socket.on("score-round-cancelled", onRoundCancelled);
+    socket.on("fit-score", onFitScore);
     socket.on("score-finalisation-started", onStarted);
     socket.on("score-frame-request", onFrameRequest);
     socket.on("score-finalisation-analysing", onAnalysing);
@@ -363,6 +393,7 @@ export function useBattleScoring(
       socket.off("score-round-starting", onRoundStarting);
       socket.off("score-round-started", onRoundStarted);
       socket.off("score-round-cancelled", onRoundCancelled);
+      socket.off("fit-score", onFitScore);
       socket.off("score-finalisation-started", onStarted);
       socket.off("score-frame-request", onFrameRequest);
       socket.off("score-finalisation-analysing", onAnalysing);
@@ -403,6 +434,7 @@ export function useBattleScoring(
   return {
     state,
     provisionalScores,
+    liveModelVersion,
     requestError,
     finalise,
     rematch,

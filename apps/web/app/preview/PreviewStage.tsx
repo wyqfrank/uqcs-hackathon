@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BattleStage } from "@/components/BattleStage";
 import { useCamera } from "@/hooks/useCamera";
 import { useLiveFitScore } from "@/hooks/useLiveFitScore";
+import { useOutfitDetection } from "@/hooks/useOutfitDetection";
 import { SCENARIOS } from "./scenarios";
 import { LiveModelReadout } from "./LiveModelReadout";
 import { useSimulatedRound } from "./useSimulatedRound";
@@ -69,7 +70,10 @@ export function PreviewStage() {
   // which no amount of offline evaluation on curated photos can.
   const [liveModel, setLiveModel] = useState(false);
   const camera = useCamera(false);
-  const fit = useLiveFitScore(localVideoRef, liveModel);
+  // The same detector the battle uses. It supplies the person crop the model
+  // expects and decides whether the player is visible enough to score at all.
+  const detection = useOutfitDetection(localVideoRef, liveModel && camera.stream !== null);
+  const fit = useLiveFitScore(detection, liveModel);
   useEffect(() => {
     if (liveModel) void camera.startCamera();
     else camera.stopCamera();
@@ -82,6 +86,8 @@ export function PreviewStage() {
 
   const [localScore, remoteScore] = useMemo<[number | null, number | null]>(
     () => {
+      // fit.smoothed is already cleared when the frame stops being scoreable,
+      // so a stale number never lingers on the card.
       if (liveModel) return [fit.smoothed, null];
       return live ? (sim.scores ?? [null, null]) : (scenario.scores ?? [null, null]);
     },
@@ -141,6 +147,11 @@ export function PreviewStage() {
           waitingText: scenario.cameraStatus === "denied" ? "CAMERA BLOCKED" : "CAMERA OFF",
           garmentCategories: [],
           garmentOverlay: null,
+          // The same overlay the battle shows, so the player is told why they
+          // are not being scored in the app's existing vocabulary.
+          detection: liveModel
+            ? { state: detection.detectorState, result: detection.result }
+            : undefined,
         }}
         remote={{
           videoRef: remoteVideoRef,
@@ -159,6 +170,7 @@ export function PreviewStage() {
           scoresAreProvisional: liveModel
             ? true
             : live ? sim.provisional : (scenario.provisional ?? false),
+          liveModelVersion: liveModel ? fit.modelVersion : null,
           error: null,
           canFinalise: (live ? sim.state : scenario.state).phase === "countdown",
         }}
@@ -170,7 +182,13 @@ export function PreviewStage() {
         onLeave={() => {}}
         onDismissResult={setDismissed}
       />
-      {liveModel ? <LiveModelReadout fit={fit} cameraStatus={camera.status} /> : null}
+      {liveModel ? (
+        <LiveModelReadout
+          fit={fit}
+          cameraStatus={camera.status}
+          detectorState={detection.detectorState}
+        />
+      ) : null}
     </div>
   );
 }

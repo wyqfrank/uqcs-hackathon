@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { captureCurrentVideoCrop, encodeAndCloseImageBitmap } from "@/lib/captureFrame";
+import { encodeAndCloseImageBitmap } from "@/lib/captureFrame";
+import { guidanceLabel } from "@/lib/cv/status";
+import type { OutfitDetectionController } from "@/lib/cv/types";
 import {
   fetchFitScoreHealth,
   postFitScore,
   smoothScore,
-  WHOLE_FRAME,
   type LiveFitScore,
 } from "@/lib/fitScore";
 
@@ -14,6 +15,7 @@ export type LiveFitScoreState =
   | "idle"
   | "checking"
   | "unavailable"
+  | "waiting_for_frame"
   | "scoring"
   | "error";
 
@@ -28,15 +30,26 @@ export type FitScoreSample = {
 const HISTORY_LENGTH = 40;
 
 /**
- * Scores the local video at roughly 1 FPS.
+ * Scores the local player at roughly 1 FPS.
  *
- * One request in flight at a time and no queue, matching the garment path: if
- * a score is still coming back when the next tick fires, that tick is skipped
- * rather than stacked. A queued frame would be showing the player a score for
- * a pose they have already left.
+ * Two things this must not do, both learned the hard way:
+ *
+ * **Score the whole frame.** The model was trained on person-framed full-body
+ * photos. A raw webcam view is mostly room, and letterboxing it to a square
+ * shrinks the person further, so the embedding ends up describing the wall.
+ * Frames go through the same `cropBox` the garment path and finalisation use.
+ *
+ * **Score a player it cannot see.** The model has no concept of bad framing —
+ * fed a half-visible person it returns a confident number that reads as a
+ * verdict on the outfit. When the detector says the frame is not scoreable
+ * there is no score, rather than a low one: "your fit is bad" and "I cannot see
+ * your fit" are different statements.
+ *
+ * One request in flight at a time and no queue, matching the garment path: a
+ * queued frame would be showing a score for a pose the player has left.
  */
 export function useLiveFitScore(
-  video: React.RefObject<HTMLVideoElement | null>,
+  detection: OutfitDetectionController,
   enabled: boolean,
   intervalMs = 1000,
 ) {
@@ -50,6 +63,17 @@ export function useLiveFitScore(
   const inFlight = useRef(false);
   const smoothedRef = useRef<number | null>(null);
 
+  // Read through refs so the polling effect does not restart on every new
+  // detector result, which arrives many times a second.
+  const detectionRef = useRef(detection);
+  detectionRef.current = detection;
+
+  const scoreable =
+    detection.detectorState === "ready" && detection.result?.scoreable === true;
+  const framingLabel = guidanceLabel(detection.detectorState, detection.result);
+  const scoreableRef = useRef(scoreable);
+  scoreableRef.current = scoreable;
+
   const reset = useCallback(() => {
     smoothedRef.current = null;
     setSmoothed(null);
@@ -57,6 +81,16 @@ export function useLiveFitScore(
     setHistory([]);
     setError(null);
   }, []);
+
+  // Drop the displayed score the moment the player stops being visible, so a
+  // stale number cannot sit on screen looking like a live reading.
+  useEffect(() => {
+    if (enabled && !scoreable) {
+      smoothedRef.current = null;
+      setSmoothed(null);
+      setLatest(null);
+    }
+  }, [enabled, scoreable]);
 
   useEffect(() => {
     if (!enabled) {
@@ -69,14 +103,19 @@ export function useLiveFitScore(
 
     const tick = async () => {
       if (!active || inFlight.current) return;
-      const element = video.current;
-      if (!element || element.readyState < 2) return;
+      if (!scoreableRef.current) {
+        setState("waiting_for_frame");
+        return;
+      }
 
       inFlight.current = true;
       try {
-        const bitmap = await captureCurrentVideoCrop(element, WHOLE_FRAME);
-        if (!bitmap) return;
-        const frame = await encodeAndCloseImageBitmap(bitmap, {
+        // Non-destructive: `consumeBestCandidate` would steal frames from the
+        // garment path, which drains the same buffer.
+        const candidate = await detectionRef.current.captureCurrentCandidate();
+        if (!candidate || !active) return;
+
+        const frame = await encodeAndCloseImageBitmap(candidate.crop, {
           maxWidth: 640,
           quality: 0.82,
           format: "image/webp",
@@ -124,7 +163,7 @@ export function useLiveFitScore(
         return;
       }
       setError(null);
-      setState("scoring");
+      setState("waiting_for_frame");
       void tick();
       timer = setInterval(() => void tick(), intervalMs);
     };
@@ -134,7 +173,17 @@ export function useLiveFitScore(
       active = false;
       if (timer) clearInterval(timer);
     };
-  }, [enabled, intervalMs, video]);
+  }, [enabled, intervalMs]);
 
-  return { state, latest, smoothed, history, error, modelVersion, reset };
+  return {
+    state,
+    latest,
+    smoothed,
+    history,
+    error,
+    modelVersion,
+    scoreable,
+    framingLabel,
+    reset,
+  };
 }

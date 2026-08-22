@@ -87,38 +87,6 @@ export type ProvisionalScorePair = {
   playerB: number;
 };
 
-const PROVISIONAL_MINIMUM = 55;
-const PROVISIONAL_MAXIMUM = 85;
-
-function seededUnit(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  hash ^= hash >>> 16;
-  hash = Math.imul(hash, 0x85ebca6b);
-  hash ^= hash >>> 13;
-  hash = Math.imul(hash, 0xc2b2ae35);
-  hash ^= hash >>> 16;
-  return (hash >>> 0) / 0xffffffff;
-}
-
-export function provisionalScoresForRound(
-  roundId: string,
-  secondsRemaining: number,
-): ProvisionalScorePair {
-  const timeSlice = Math.floor(Math.max(0, secondsRemaining) * 2);
-  const score = (role: "player_a" | "player_b") => {
-    const base = 62 + seededUnit(`${roundId}:${role}:base`) * 16;
-    const movement = (seededUnit(`${roundId}:${role}:${timeSlice}`) - 0.5) * 6;
-    return Math.round(
-      Math.max(PROVISIONAL_MINIMUM, Math.min(PROVISIONAL_MAXIMUM, base + movement)) * 10,
-    ) / 10;
-  };
-  return { playerA: score("player_a"), playerB: score("player_b") };
-}
-
 export function scoresForRole(result: FinalScoreResult, role: "host" | "guest") {
   return role === "host"
     ? { localScore: result.playerAScore, remoteScore: result.playerBScore }

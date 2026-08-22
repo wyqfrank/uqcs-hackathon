@@ -134,6 +134,7 @@ export function BattleRoom({
         isLocked: scoring.isLocked,
         canRematch: scoring.canRematch,
         scoresAreProvisional: scoresAreProvisional,
+        liveModelVersion: scoring.liveModelVersion,
         error: scoreError,
         canFinalise,
       }}

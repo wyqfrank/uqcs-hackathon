@@ -1,32 +1,7 @@
 import type { RefObject } from "react";
 import { mirrorRect } from "@/lib/cv/crop";
-import type {
-  DetectorState,
-  OutfitDetectionResult,
-  OutfitFrameStatus,
-} from "@/lib/cv/types";
-
-const STATUS_LABELS: Record<Exclude<OutfitFrameStatus, "valid">, string> = {
-  no_person: "STEP INTO FRAME",
-  multiple_people: "ONLY ONE PERSON",
-  partial_outfit: "SHOW MORE OF YOUR FIT",
-  too_close: "STEP BACK",
-  too_far: "MOVE CLOSER",
-  low_light: "MORE LIGHT NEEDED",
-  blurred: "HOLD STILL",
-  moving_too_fast: "HOLD STILL",
-  detector_unavailable: "DETECTOR UNAVAILABLE",
-};
-
-function guidanceLabel(
-  state: DetectorState,
-  result: OutfitDetectionResult | null,
-) {
-  if (state === "loading") return "LOADING FIT DETECTOR";
-  if (state === "unavailable" || !result) return "DETECTOR UNAVAILABLE";
-  if (result.observedStatus !== "valid") return STATUS_LABELS[result.observedStatus];
-  return result.scoreable ? "FIT READY" : "HOLD STILL";
-}
+import { guidanceLabel } from "@/lib/cv/status";
+import type { DetectorState, OutfitDetectionResult } from "@/lib/cv/types";
 
 export function OutfitDetectionOverlay({
   videoRef,

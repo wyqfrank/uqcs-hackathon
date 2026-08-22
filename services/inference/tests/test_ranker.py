@@ -200,3 +200,60 @@ def test_fit_score_rejects_an_unsupported_media_type(monkeypatch) -> None:
         )
 
     assert response.status_code == 415
+
+
+def test_fit_score_pair_returns_503_when_the_model_is_absent(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "fitted_inference.main.create_fit_ranker",
+        lambda _settings: UnavailableFitRanker("no artifact in this test"),
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/fit-score/pair",
+            data={
+                "battle_id": "FIT-1234",
+                "pair_id": "pair-1",
+                "player_a_sample_id": "sample-a",
+                "player_b_sample_id": "sample-b",
+            },
+            files={
+                "player_a": ("a.webp", valid_image_bytes(), "image/webp"),
+                "player_b": ("b.webp", valid_image_bytes(), "image/webp"),
+            },
+        )
+
+    assert response.status_code == 503
+
+
+def test_fit_score_pair_echoes_sample_identity() -> None:
+    """The coordinator drops any response whose identity does not match.
+
+    Scores computed from one player's frame shown against the other's is the
+    failure this guards, so the identity has to survive the round trip.
+    """
+    ranker = create_fit_ranker(settings())
+    if not ranker.ready:
+        pytest.skip("no ranker artifact present")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/fit-score/pair",
+            data={
+                "battle_id": "FIT-1234",
+                "pair_id": "pair-1",
+                "player_a_sample_id": "sample-a",
+                "player_b_sample_id": "sample-b",
+            },
+            files={
+                "player_a": ("a.webp", valid_image_bytes(), "image/webp"),
+                "player_b": ("b.webp", valid_image_bytes(), "image/webp"),
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["battleId"] == "FIT-1234"
+    assert body["pairId"] == "pair-1"
+    assert body["playerASampleId"] == "sample-a"
+    assert body["playerBSampleId"] == "sample-b"
+    assert 0 <= body["playerA"]["percentile"] <= 1
