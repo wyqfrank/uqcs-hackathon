@@ -39,3 +39,12 @@ apps/web/public/label-pool/
 !data/labelling/
 data/labelling/*
 !data/labelling/*.jsonl
+
+# Fashion144k: 7.8 GB teacher image pool, downloaded not committed.
+data/fashion144k/
+
+# Raw photo exports of the labelling pool. The ingested pool is already ignored
+# above; these are the same photographs of real people, one step earlier, and
+# must not reach the repository either.
+/uqcs hackathon*/
+/uqcs hackathon*.zip
