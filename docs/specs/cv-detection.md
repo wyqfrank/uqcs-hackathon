@@ -559,8 +559,8 @@ Keep pure crop, quality, motion, candidate-selection, and state-transition logic
 - [ ] Pad and resize selected crops to the encoder input shape without stretching.
 - [x] Connect per-client local-candidate submission and server-side pairing to the
   `/v1/compare` service boundary.
-- [x] On finalisation, preserve one fresh stable synchronised pair or verified
-  short burst and reject late live detection results for that battle.
+- [x] On finalisation, capture three timed stable slots, preserve any one-to-three
+  complete synchronised pairs, and reject late live detection results.
 - [ ] Connect selected crops to the visual-encoder baseline.
 - [ ] Test camera restart, disconnect, and cleanup behaviour.
 - [ ] Run face-blur and background-neutralisation ablations.
@@ -756,7 +756,7 @@ This low-capacity combiner is appropriate for 500–1,000 decisions. Direct unre
 
 ## 23. VLM and temporal-video boundary
 
-At battle completion, an image-capable VLM may analyse the best synchronised pair or a short three-frame burst. Its structured response should contain component quality, whole-outfit coordination, body-aware fit, a holistic diagnostic score, frame quality and visible clothing observations. The holistic value is not added to the fallback's deterministic 45/30/25 score.
+At battle completion, an image-capable VLM analyses any one-to-three complete synchronised pairs from three timed capture slots in one request. Its structured response contains component quality, whole-outfit coordination, body-aware fit, a holistic diagnostic score, frame quality and visible clothing observations. The holistic value is not added to the fallback's deterministic 45/30/25 score.
 
 The VLM prompt must prohibit assessment of faces, attractiveness, body type, perceived gender, brand value and popularity. The VLM is one expert and the explanation layer; it does not overwrite the application-owned deterministic combiner.
 

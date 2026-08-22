@@ -1,8 +1,9 @@
 # Scoring model specification
 
-**Status:** Authoritative single-pair VLM finalisation is implemented and covered
-by automated tests. Real-provider, browser-visual, two-device, live provisional,
-training, and representative evaluation work remains pending.
+**Status:** The server-authoritative 30-second round and one-to-three-pair final
+VLM burst are implemented and covered by automated tests. Real-provider,
+browser-visual, two-device, live provisional, training, and representative
+evaluation work remains pending.
 
 This specification narrows the PRD's scoring direction into the first executable
 boundary. The hackathon uses provisional score ranges during a battle and exact,
@@ -19,14 +20,19 @@ remain unsettled.
 - [ ] The provisional live-range UI is implemented and tested.
 - [x] Finalisation locks an exact server-authoritative result in the coordinator
   and both client roles map that result consistently.
+- [x] Both locally score-ready roles start one server-owned 30-second round, with
+  early finalisation and disconnect cancellation handled by the coordinator.
+- [x] Finalisation captures three time-spaced slots and sends all available
+  complete pairs to Gemini in one request.
 - [ ] Live-to-final continuity targets are measured on representative webcam
   battles and the live display is tuned or reduced to the qualitative fallback.
 
-Automated verification on 2026-08-22 passes TypeScript typecheck, 21 web
-unit tests, the signalling smoke test, 11 Node coordinator tests, 43 Python/API
-tests, Ruff, and the production build. The credentialed Gemini smoke test is
-present but skipped by default; visual browser QA and two-laptop acceptance have
-not yet run.
+Automated verification on 2026-08-22 passes TypeScript typecheck, 24 web unit
+tests, 17 Node coordinator tests, 60 Python/API tests, Ruff, and the production
+build. The signalling smoke test could not be rerun while the user's existing
+Next dev server held the development lock; its prior passing status is unchanged.
+The credentialed Gemini smoke test is present but skipped by default; visual
+browser QA and two-laptop acceptance have not yet run.
 
 ## Runtime contract
 
@@ -111,12 +117,13 @@ been measured.
 
 ### Final authoritative mode
 
-When the battle is frozen or ended, stop accepting live updates and enter an
-**Analysing final result** state. The server selects the best fresh synchronised
-pair, or a short three-pair burst once that path is verified, and invokes the
-most accurate configured scoring path. For the hackathon, this is the paired VLM
-fallback plus the application-owned deterministic dimension combiner unless a
-validated learned scorer replaces it.
+When both players become locally score-ready, the server starts a 30-second
+countdown. At zero, or when either player finalises early, stop accepting live
+garment updates and collect three fresh synchronised slots approximately 750 ms
+apart. Enter **Analysing final result** with any one-to-three complete pairs and
+invoke the most accurate configured scoring path once. For the hackathon, this
+is the paired VLM fallback plus the application-owned deterministic dimension
+combiner unless a validated learned scorer replaces it.
 
 The completed response contains exact `0..100` scores, formatted to one decimal,
 and the final winner or draw. It is tied to a finalisation ID, broadcast once by
@@ -192,8 +199,9 @@ are implemented; `live_provisional` remains planned.
 The paired-image VLM is the first working scoring fallback and the later final
 explanation layer. It is not the intended high-frequency live scorer. WebRTC
 continues at its normal frame rate, browser-side CV selects recent stable frames,
-and each browser submits only its own newest stable snapshot. A server-side
-coordinator pairs fresh A/B submissions and produces one authoritative result.
+and each browser submits only its own newest stable local snapshot for each final
+capture slot. A server-side coordinator pairs fresh A/B submissions and produces
+one authoritative result.
 When the learned scorer is ready, it should own the approximately `1 FPS` live
 score while the VLM runs at freeze/finalisation or when that scorer is
 unavailable.
@@ -201,7 +209,8 @@ unavailable.
 For the hackathon implementation:
 
 - use `gemini-3.6-flash` through the Gemini API;
-- send both labelled images inline in one request;
+- send the labelled Player A sequence followed by the labelled Player B sequence
+  inline in one request;
 - request strict structured output;
 - never log image bytes or base64 payloads;
 - permit at most one request in flight and never queue old video frames; and
@@ -223,13 +232,16 @@ boundary remains provider-neutral so this decision can be revisited later.
 ### Request flow
 
 ```text
-player A browser -> choose and submit newest stable local candidate --\
-                                                                  server-side
-player B browser -> choose and submit newest stable local candidate --/ coordinator
-  -> derive room/player identity and validate the collection deadline
-  -> retain client sample IDs, assign a pair ID, and invoke /v1/compare once
+both locally score-ready -> server starts one 30-second round
+  -> timer reaches zero or either player finalises early
+  -> server requests paired slots at 0, 750, and 1500 ms
+  -> each browser chooses and submits only its newest stable local candidate
+  -> coordinator derives identity, keeps the newest submission per role/slot,
+     and discards incomplete slots
+  -> retain chronological sample identities, assign a burst pair ID, and invoke
+     /v1/compare once with one-to-three complete pairs
   -> inference service revalidates type, size, and decodability
-  -> VLM adapter sends labelled A and B images in one stateless request
+  -> VLM adapter sends rubric, A label/images, then B label/images in one request
   -> strict response is parsed into the internal assessment schema
   -> application computes both 45/30/25 visual scores
   -> application applies the provisional draw rule
@@ -237,12 +249,12 @@ player B browser -> choose and submit newest stable local candidate --/ coordina
   -> both clients accept it only if the battle/finalisation ID is still current
 ```
 
-The VLM fallback runs on freeze/finalisation by default. At that point, prefer the
-best synchronised pair or aggregate a three-pair burst after the single-pair path
-is reliable. Periodic VLM sampling every `2–3 seconds` is an optional fallback
-experiment, not an MVP requirement. If enabled, a timer tick while a request is
-active is skipped and never queued. The previous valid result remains visible
-while a new result is pending or a sample is skipped.
+The VLM fallback runs only on finalisation by default. The implemented final
+burst accepts any one-to-three complete chronological pairs and produces one
+burst-level assessment; it never makes three independent Gemini calls. Periodic
+VLM sampling every `2–3 seconds` is an optional fallback experiment, not an MVP
+requirement. If enabled later, a timer tick while a request is active must be
+skipped and never queued.
 
 ### Internal VLM assessment
 
@@ -326,7 +338,9 @@ FITTED_SCORING_BACKEND=vlm_fallback
 FITTED_VLM_MODEL=gemini-3.6-flash
 FITTED_VLM_MEDIA_RESOLUTION=high
 FITTED_VLM_TIMEOUT_SECONDS=12
-FITTED_VLM_PROMPT_VERSION=v1
+FITTED_VLM_PROMPT_VERSION=v2
+FITTED_MAX_BURST_BYTES=15728640
+FITTED_ROUND_DURATION_MS=30000
 ```
 
 The API key must never enter the Next.js client bundle. Each browser owns capture,
@@ -357,8 +371,8 @@ service remains stateless.
   configuration.
 - [x] Define a small provider-neutral VLM protocol so tests and future providers
   do not depend directly on the Google SDK.
-- [x] Implement the Gemini adapter with two labelled inline image inputs, explicit
-  media resolution, strict structured output, and bounded timeout.
+- [x] Implement the Gemini adapter with labelled chronological image sequences,
+  explicit media resolution, strict structured output, and bounded timeout.
 - [x] Validate response values after schema parsing and map provider errors into
   explicit domain errors.
 - [x] Report configured readiness and provider model in health, with
@@ -391,8 +405,10 @@ service remains stateless.
   both clients.
 - [ ] Record out-of-range final reveals and show an explicit adjusted-estimate
   transition instead of clamping the final score.
-- [ ] On freeze/finalisation, score the newest synchronised pair and evaluate a
-  three-pair aggregation only after the single-pair path is reliable.
+- [x] Start one server-authoritative 30-second round when both roles are ready,
+  allow either player to finalise early, and cancel on disconnect.
+- [x] On finalisation, request three paired slots approximately 750 ms apart and
+  score any one-to-three complete pairs in one Gemini request.
 - [ ] Consider configurable `2–3 second` VLM polling only as an optional
   fallback experiment after the freeze/final path is reliable.
 
@@ -403,8 +419,11 @@ service remains stateless.
   fake provider.
 - [x] API-test configured success, missing configuration, invalid images,
   not-scoreable results, timeouts, and provider failures without network access.
-- [ ] Browser-test one request per room in flight, stale/duplicate rejection,
-  freeze behaviour, and consistent authoritative results on both clients.
+- [x] Coordinator-test one request per room in flight, countdown expiry, early
+  finalisation, disconnect cleanup, burst fallback, stale/duplicate rejection,
+  and locked-result replay.
+- [ ] Browser-test the complete countdown, capture, and consistent authoritative
+  result flow on both clients.
 - [x] Add an opt-in real-provider smoke test that never runs in the default suite.
 - [ ] Evaluate at least 30–50 consented representative pairs, including swapped
   A/B duplicates and multiple frames of the same outfit.

@@ -46,6 +46,8 @@ This checklist is the high-level source of truth for specification and implement
 - [x] Video-frame capture and latest-frame backpressure are implemented.
 - [x] Battle UI supports framing readiness, finalisation states, authoritative
   results, copying the room code, and leaving without fabricated scores.
+- [x] Both score-ready players start one server-authoritative 30-second round;
+  disconnects cancel it and either player can finalise early.
 - [x] Person/pose detection and frame-quality gating are implemented.
 - [x] Canonical padded outfit cropping is implemented, with feet treated as optional evidence.
 - [x] A typed server-side garment-perception API and Grounding DINO baseline adapter are implemented and smoke-tested on one full-body image.
@@ -61,6 +63,8 @@ This checklist is the high-level source of truth for specification and implement
 - [ ] The live battle displays labelled provisional score ranges from the fast scoring path rather than presenting an approximate point score as final.
 - [x] Battle finalisation runs the configured VLM path, broadcasts exact scores
   and the winner or draw to both players, and locks the result against late work.
+- [x] Finalisation requests three fresh paired local crops approximately 750 ms
+  apart and submits the available one-to-three complete pairs in one VLM call.
 - [ ] Live-to-final range coverage, score error, leader reversals, and transition behaviour are verified on representative webcam battles.
 - [ ] Instagram residual labels and expert model are implemented.
 - [ ] Depop residual labels and expert model are implemented.
@@ -185,11 +189,13 @@ ten to at most sixteen points. If useful coverage still requires a wider range,
 remove the live numbers and retain only a qualitative current-leader treatment.
 Do not imply that the range is a calibrated confidence interval.
 
-When the battle is frozen or ended, both clients enter **Analysing final result**.
-The server scores the best fresh synchronised pair, or a verified short burst,
-using the most accurate configured path. It then broadcasts exact one-decimal
-scores and the final winner or draw to both clients and locks the result. Late
-live responses cannot change it.
+When both players are connected and locally score-ready, the server starts one
+30-second round. At zero, or when either player finalises early, both clients
+enter the same final capture path and then **Analysing final result**. The server
+requests three fresh paired crops approximately 750 ms apart, scores the
+available one-to-three complete pairs in one request, broadcasts exact
+one-decimal scores and the final winner or draw to both clients, and locks the
+result. Late live responses cannot change it.
 
 The accurate final score is not clamped to the previous live range. An
 out-of-range result is revealed truthfully, described as an adjusted estimate,
@@ -203,7 +209,6 @@ implementation checklist live in
 
 **Still TBD:**
 
-- the automatic or player-triggered battle-ending mechanic;
 - the measured final draw threshold;
 - how much final reasoning or calibrated confidence to show; and
 - the exact retry/recapture interaction for poor framing or an outfit that is not sufficiently visible.
@@ -479,13 +484,13 @@ This dataset calibrates a low-capacity pairwise combiner over frozen expert outp
 
 ### VLM role
 
-For the hackathon, an image-capable VLM analyses the best synchronised frame pair when a battle is frozen or finalised. It returns structured component-quality, whole-outfit coordination, body-aware fit, holistic, frame-quality and explanation fields. The fallback's public score uses only the deterministic 45/30/25 dimensions; the holistic value is retained for diagnostics and as a candidate feature for the later learned combiner so it is not double-counted. The application may use the VLM explanation in the final result experience.
+For the hackathon, an image-capable VLM analyses one-to-three synchronised frame pairs captured as a final burst. It returns structured component-quality, whole-outfit coordination, body-aware fit, holistic, frame-quality and explanation fields. The fallback's public score uses only the deterministic 45/30/25 dimensions; the holistic value is retained for diagnostics and as a candidate feature for the later learned combiner so it is not double-counted. The application may use the VLM explanation in the final result experience.
 
 The VLM's single `componentQuality` value is a fallback approximation. The final component branch remains the garment-aware calculation above, using per-component style, category importance, detection confidence, and visibility.
 
 Use **Gemini 3.6 Flash** for the hackathon's paired-image VLM fallback. Keep the provider boundary replaceable, but defer broad model comparison until after the hackathon unless Gemini blocks delivery.
 
-The VLM should not continuously process the 30 FPS webcam stream. Live video remains independent; the VLM fallback uses the newest fresh pair when a battle is frozen or finalised, permits one request per room in flight and discards stale work. A final three-frame burst may be used to reduce sensitivity to a single pose. The later learned scorer, not the VLM fallback, is responsible for approximately 1 FPS live scoring. Periodic VLM polling every 2–3 seconds is optional experimentation only.
+The VLM does not continuously process the 30 FPS webcam stream. Live video remains independent; finalisation requests three time-spaced local crops from each browser and sends the available one-to-three complete pairs to Gemini in one labelled request. Only one request per room may be in flight and stale work is discarded. The later learned scorer, not the VLM fallback, is responsible for approximately 1 FPS live scoring. Periodic VLM polling every 2–3 seconds is optional experimentation only.
 
 Streaming-video VLMs are a post-hackathon investigation for continuous commentary, garment movement or long-session memory. They are not required for outfit scoring, where the visual state changes slowly relative to the video frame rate.
 
@@ -673,13 +678,14 @@ The hackathon inference service should combine, in priority order:
 
 The VLM is used at battle completion for holistic assessment and explanation. A StreamingVLM deployment, continuous 30 FPS model inference, full visual-encoder fine-tuning and production C++/TensorRT optimisation are explicitly deferred until after the scoring concept is validated.
 
-Each browser selects only its own newest stable local crop, encodes it as WebP at
-up to 640 pixels wide, and submits it with sample and capture-time metadata. The
-Node room coordinator derives room and player role from the socket, briefly
-retains only the newest valid submission per player, pairs submissions within a
-three-second collection window, invokes comparison once for the room, and
-broadcasts one authoritative result to both clients. Stale and superseded frames
-are discarded and prototype frames are not persisted.
+Each browser selects only its own newest stable local crop for three server-owned
+capture slots at `0`, `750`, and `1500` ms, encodes each available crop as WebP
+at up to 640 pixels wide, and submits it with slot, sample, and capture-time
+metadata. The Node room coordinator derives room and player role from the socket,
+retains only the newest valid submission for each role and slot, discards
+incomplete slots, and invokes comparison once with the available one-to-three
+complete pairs. Stale and superseded frames are discarded and prototype frames
+are not persisted.
 
 The existing Node room service owns pairing and locked battle-result state; the
 Python inference service is stateless. Browser clients never own the
@@ -688,14 +694,14 @@ other player's scoring input.
 
 ```text
 Laptop A <──────────── WebRTC video ────────────> Laptop B
-   | local selected frame                 local selected frame |
-   +----------------> server-side pairing coordinator <--------+
+   | three timed local crops              three timed local crops |
+   +----------------> server-side pairing coordinator <----------+
                               |
-                      one fresh A/B pair
+                one-to-three complete A/B pairs
                               v
                     Python inference service
                               |
-              preprocessing, VLM/scorer, result
+                 one VLM request, one result
                               v
                  authoritative broadcast to both
 ```
@@ -777,6 +783,7 @@ Only record choices here once the team has agreed to them.
 | Live video | WebRTC | Current prototype choice | Reassess only if it blocks a reliable demo |
 | Signalling | Socket.IO | Current prototype choice | Used for rooms and WebRTC negotiation |
 | Result format | Provisional live ranges, then exact final scores and a winner or draw | Decided for hackathon | Live values are labelled estimates; only server finalisation can lock the verdict |
+| Round lifecycle | Start one server-owned 30-second round when both players are score-ready; either player may finalise early | Implemented for hackathon | Clients derive the display deadline from server timestamps and never independently finalise at zero |
 | Live-to-final continuity | Calibrate the live band against the final scorer | Decided for hackathon | Start at ±5 points, target 80% coverage, widen to at most 16 total points, then fall back to qualitative live status rather than false precision |
 | ML target | Preference of the defined FITTED target audience | Current direction | Social popularity supplies weak supervision; audience judgements calibrate the target |
 | ML formulation | Source experts combined into a pairwise FITTED score | Current direction | Instagram and Depop first; style momentum later if useful |
@@ -792,4 +799,5 @@ Only record choices here once the team has agreed to them.
 | Inference location | Separate stateless Python service | Implemented for hackathon | Keeps ML dependencies out of the working signalling server |
 | Frame transport | Per-client local-frame submission | Decided for hackathon | Each player submits only its own selected local crop |
 | Pairing authority | Existing Node room service | Implemented for hackathon | Derives host/guest roles, pairs local crops, and locks/broadcasts the result |
+| Final VLM evidence | Three time-based paired capture slots, with one-to-three complete pairs sent in one request | Implemented for hackathon | Slots are approximately 750 ms apart; incomplete slots are discarded rather than scored independently |
 | Nice-to-have scope | TBD | Open | Decide after core-flow validation |
