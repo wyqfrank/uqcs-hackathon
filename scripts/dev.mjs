@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
 
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const npmCli = process.env.npm_execpath;
+const npmCommand = npmCli ? process.execPath : process.platform === "win32" ? "npm.cmd" : "npm";
+const npmArgs = (script) => (npmCli ? [npmCli, "run", script] : ["run", script]);
 const children = [
-  spawn(npmCommand, ["run", "dev:web"], { stdio: "inherit" }),
-  spawn(npmCommand, ["run", "dev:api"], { stdio: "inherit" }),
+  spawn(npmCommand, npmArgs("dev:web"), { stdio: "inherit" }),
+  spawn(npmCommand, npmArgs("dev:api"), { stdio: "inherit" }),
 ];
 
 let stopping = false;
