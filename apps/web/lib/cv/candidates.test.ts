@@ -9,6 +9,7 @@ function candidate(capturedAt: number, quality = createQuality()) {
     value: {
       capturedAt,
       crop: { close } as unknown as ImageBitmap,
+      cropBox: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
       quality,
       visibleRegions: { head: true, torso: true, legs: true, feet: false },
     } satisfies CandidateFrame,
@@ -47,4 +48,3 @@ describe("candidate selection", () => {
     for (const frame of frames.slice(1)) expect(frame.close).toHaveBeenCalledOnce();
   });
 });
-

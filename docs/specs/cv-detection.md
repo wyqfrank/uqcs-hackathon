@@ -362,6 +362,8 @@ Current experiment status:
 - [x] Select the Fashionpedia-trained RF-DETR-Seg Small checkpoint as the only replacement candidate for the hackathon gate.
 - [x] Pin and record the candidate checkpoint revision, checksum, declared Apache 2.0 weight licence, and required attribution.
 - [x] Implement the RF-DETR-Seg adapter behind the existing garment-perception response.
+- [x] Carry canonical-crop geometry through room pairing and project reduced-category
+  detections back onto both mirrored video feeds as labelled bounding boxes.
 - [ ] Run the live acceptance gate on 15–20 representative webcam crops from the intended demo hardware.
 - [ ] Connect passing garment results to the live battle loop at approximately 1 FPS with one request in flight.
 - [ ] Post-hackathon: map DeepFashion2 and Fashionpedia evaluation labels into the reduced product taxonomy and run full per-category evaluation.
@@ -397,8 +399,11 @@ second, derives Player A/B from the socket role, invokes `/v1/garments/pair` onc
 and broadcasts category results separately from scoring. Busy ticks are skipped,
 stale request IDs are rejected, image buffers are discarded after request
 construction, and live garment work is aborted and paused during finalisation.
-The browser displays reduced category chips only; detector boxes are retained for
-future component work but are not drawn publicly.
+The browser displays reduced category chips and labelled detector boxes on both
+video feeds. Each sample carries its normalized source crop rectangle; the room
+coordinator preserves authoritative Player A/B geometry, and the browser maps each
+crop-relative RF-DETR box back into source-video space before applying the mirrored
+video transform. The 19 ignored Fashionpedia garment-part classes remain excluded.
 
 Time-box adapter implementation and the first hardware measurement to **90 minutes**. The candidate passes only if:
 
@@ -570,6 +575,8 @@ Keep pure crop, quality, motion, candidate-selection, and state-transition logic
 - [x] Implement and unit-test the RF-DETR-Seg adapter and paired inference boundary.
 - [x] Add an idempotent checkpoint bootstrap that verifies the pinned byte size and
   SHA-256 before enabling the local RF-DETR runtime.
+- [x] Render reduced-category RF-DETR boxes on both mirrored player feeds using the
+  exact crop geometry associated with each paired inference sample.
 - [ ] Run the representative-crop portion of the 90-minute acceptance gate.
 - [ ] Integrate garment perception at approximately 1 FPS only if the acceptance gate passes.
 - [ ] Post-hackathon: evaluate garment perception on mapped DeepFashion2, Fashionpedia, and larger webcam fixtures.

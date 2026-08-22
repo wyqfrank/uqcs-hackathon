@@ -1,9 +1,10 @@
 import { useEffect, type RefObject } from "react";
 import { Camera } from "lucide-react";
 import type { DetectorState, OutfitDetectionResult } from "@/lib/cv/types";
-import type { GarmentCategory } from "@/lib/garmentPerception";
+import type { GarmentCategory, GarmentOverlay } from "@/lib/garmentPerception";
 import { FittedScore } from "./FittedScore";
 import { GarmentCategoryChips } from "./GarmentCategoryChips";
+import { GarmentDetectionOverlay } from "./GarmentDetectionOverlay";
 import { OutfitDetectionOverlay } from "./OutfitDetectionOverlay";
 
 /** Cabinet side: P1 runs magenta and mirrors right, P2 runs acid green and mirrors left. */
@@ -22,6 +23,7 @@ export function PlayerCard({
   waitingText,
   detection,
   garmentCategories = [],
+  garmentOverlay = null,
 }: {
   label: string;
   number: string;
@@ -34,6 +36,7 @@ export function PlayerCard({
   provisionalScore?: boolean;
   waitingText: string;
   garmentCategories?: GarmentCategory[];
+  garmentOverlay?: GarmentOverlay | null;
   detection?: {
     state: DetectorState;
     result: OutfitDetectionResult | null;
@@ -57,6 +60,9 @@ export function PlayerCard({
             detectorState={detection.state}
             result={detection.result}
           />
+        )}
+        {stream && (
+          <GarmentDetectionOverlay videoRef={videoRef} overlay={garmentOverlay} />
         )}
         {!stream && (
           <div className="video-placeholder">

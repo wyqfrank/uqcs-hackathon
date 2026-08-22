@@ -124,6 +124,7 @@ export function useOutfitDetection(
       candidates.add({
         capturedAt: message.result.capturedAt,
         crop: message.candidate,
+        cropBox: message.result.cropBox!,
         quality: message.result.quality,
         visibleRegions: message.result.visibleRegions,
       }, performance.now());
@@ -206,6 +207,7 @@ export function useOutfitDetection(
     return {
       capturedAt: performance.now(),
       crop,
+      cropBox: latest.cropBox,
       quality: latest.quality,
       visibleRegions: latest.visibleRegions,
     };
@@ -234,6 +236,7 @@ export function useOutfitDetection(
     return {
       capturedAt: performance.now(),
       crop,
+      cropBox: latest.cropBox,
       quality: latest.quality,
       visibleRegions: latest.visibleRegions,
     };

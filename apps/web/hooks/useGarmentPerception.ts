@@ -5,8 +5,9 @@ import type { Socket } from "socket.io-client";
 import { encodeAndCloseImageBitmap } from "@/lib/captureFrame";
 import type { OutfitDetectionController } from "@/lib/cv/types";
 import {
-  garmentCategoriesForRole,
+  garmentPerceptionForRole,
   type GarmentCategory,
+  type GarmentOverlay,
   type GarmentPairResult,
 } from "@/lib/garmentPerception";
 import type { RoomRole } from "@/lib/signaling";
@@ -32,6 +33,8 @@ export function useGarmentPerception(
 ) {
   const [localCategories, setLocalCategories] = useState<GarmentCategory[]>([]);
   const [remoteCategories, setRemoteCategories] = useState<GarmentCategory[]>([]);
+  const [localOverlay, setLocalOverlay] = useState<GarmentOverlay | null>(null);
+  const [remoteOverlay, setRemoteOverlay] = useState<GarmentOverlay | null>(null);
   const [state, setState] = useState<"idle" | "sampling" | "ready" | "unavailable">(
     "idle",
   );
@@ -75,6 +78,7 @@ export function useGarmentPerception(
           sampleId: crypto.randomUUID(),
           capturedAtEpochMs,
           mimeType: blob.type,
+          cropBox: candidate.cropBox,
           image: await blob.arrayBuffer(),
         },
         (acknowledgement: EventAcknowledgement) => {
@@ -86,9 +90,11 @@ export function useGarmentPerception(
 
     const onResult = (result: GarmentPairResult) => {
       if (!active || result.battleId !== roomId) return;
-      const categories = garmentCategoriesForRole(result, role);
-      setLocalCategories(categories.localCategories);
-      setRemoteCategories(categories.remoteCategories);
+      const perception = garmentPerceptionForRole(result, role);
+      setLocalCategories(perception.local.categories);
+      setRemoteCategories(perception.remote.categories);
+      setLocalOverlay(perception.local.overlay);
+      setRemoteOverlay(perception.remote.overlay);
       setState("ready");
     };
 
@@ -107,5 +113,5 @@ export function useGarmentPerception(
     };
   }, [consumeBestCandidate, enabled, role, roomId, socket]);
 
-  return { state, localCategories, remoteCategories };
+  return { state, localCategories, remoteCategories, localOverlay, remoteOverlay };
 }

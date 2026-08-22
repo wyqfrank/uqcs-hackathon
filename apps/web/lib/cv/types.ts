@@ -58,6 +58,7 @@ export type OutfitDetectionResult = {
 export type CandidateFrame = {
   capturedAt: number;
   crop: ImageBitmap;
+  cropBox: NormalizedRect;
   quality: FrameQualityMetrics;
   visibleRegions: VisibleRegions;
 };

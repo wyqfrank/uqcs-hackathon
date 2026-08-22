@@ -96,6 +96,7 @@ function garmentFrame(requestId, sampleId, byte = 1) {
     sampleId,
     capturedAtEpochMs: 1000,
     mimeType: "image/webp",
+    cropBox: { x: 0.1, y: 0.05, width: 0.8, height: 0.9 },
     image: Buffer.from([byte, byte + 1]),
   };
 }
@@ -164,6 +165,37 @@ test("pairs live garment frames by server role", async () => {
   assert.equal(requests[0].get("player_a_sample_id"), "host-garment");
   assert.equal(requests[0].get("player_b_sample_id"), "guest-garment");
   assert.equal(io.events.at(-1).name, "garment-result");
+  assert.deepEqual(io.events.at(-1).payload.playerACropBox, {
+    x: 0.1,
+    y: 0.05,
+    width: 0.8,
+    height: 0.9,
+  });
+  assert.deepEqual(io.events.at(-1).payload.playerBCropBox, {
+    x: 0.1,
+    y: 0.05,
+    width: 0.8,
+    height: 0.9,
+  });
+});
+
+test("rejects garment frames without valid source crop geometry", () => {
+  const { coordinator, host } = setup(async () => {
+    throw new Error("inference must not run");
+  });
+  const state = coordinator.perceptionRooms.get("FIT-1234");
+  coordinator.requestGarmentFrames("FIT-1234", state);
+  let acknowledgement;
+  coordinator.submitGarmentFrame(
+    host,
+    { ...garmentFrame(state.requestId, "host"), cropBox: { x: 0.8, y: 0, width: 0.3, height: 1 } },
+    (result) => { acknowledgement = result; },
+  );
+
+  assert.deepEqual(acknowledgement, {
+    ok: false,
+    error: "Garment frame metadata is invalid.",
+  });
 });
 
 test("live garment inference has zero queue depth while a pair is in flight", async () => {

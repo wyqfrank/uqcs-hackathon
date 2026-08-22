@@ -152,6 +152,7 @@ export function BattleRoom({
             waitingText={camera.status === "requesting" ? "OPENING CAMERA" : "CAMERA OFF"}
             detection={{ state: outfitDetection.detectorState, result: outfitDetection.result }}
             garmentCategories={garmentPerception.localCategories}
+            garmentOverlay={garmentPerception.localOverlay}
           />
           <div className="versus-mark"><span>V</span><span>S</span></div>
           <PlayerCard
@@ -171,6 +172,7 @@ export function BattleRoom({
                       : "WAITING FOR OPPONENT"
             }
             garmentCategories={garmentPerception.remoteCategories}
+            garmentOverlay={garmentPerception.remoteOverlay}
           />
         </div>
 

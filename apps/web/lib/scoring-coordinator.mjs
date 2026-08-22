@@ -8,6 +8,27 @@ const DEFAULT_MAX_BURST_BYTES = 15 * 1024 * 1024;
 // hosted from Safari.
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/webp", "image/png"]);
 
+function normaliseCropBox(value) {
+  const cropBox = {
+    x: Number(value?.x),
+    y: Number(value?.y),
+    width: Number(value?.width),
+    height: Number(value?.height),
+  };
+  if (
+    Object.values(cropBox).some((coordinate) => !Number.isFinite(coordinate))
+    || cropBox.x < 0
+    || cropBox.y < 0
+    || cropBox.width <= 0
+    || cropBox.height <= 0
+    || cropBox.x + cropBox.width > 1
+    || cropBox.y + cropBox.height > 1
+  ) {
+    return null;
+  }
+  return cropBox;
+}
+
 function errorResult(roomId, state, reasonCode, message) {
   const samplePairs = state.pairedIdentity ?? [];
   const latest = samplePairs.at(-1);
@@ -453,6 +474,7 @@ export class ScoringCoordinator {
     const mimeType = String(payload?.mimeType || "");
     const sampleId = String(payload?.sampleId || "");
     const capturedAtEpochMs = Number(payload?.capturedAtEpochMs);
+    const cropBox = normaliseCropBox(payload?.cropBox);
     if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) {
       acknowledge({ ok: false, error: "Garment frames must be JPEG or WebP." });
       return;
@@ -461,7 +483,7 @@ export class ScoringCoordinator {
       acknowledge({ ok: false, error: "Garment frame size is invalid." });
       return;
     }
-    if (!sampleId || sampleId.length > 128 || !Number.isFinite(capturedAtEpochMs)) {
+    if (!sampleId || sampleId.length > 128 || !Number.isFinite(capturedAtEpochMs) || !cropBox) {
       acknowledge({ ok: false, error: "Garment frame metadata is invalid." });
       return;
     }
@@ -471,6 +493,7 @@ export class ScoringCoordinator {
       mimeType,
       sampleId,
       capturedAtEpochMs,
+      cropBox,
       receivedAt: this.now(),
     };
     acknowledge({ ok: true });
@@ -549,8 +572,13 @@ export class ScoringCoordinator {
         return;
       }
       if (this.perceptionRooms.get(roomId) !== state) return;
-      state.result = result;
-      this.io.to(roomId).emit("garment-result", result);
+      const positionedResult = {
+        ...result,
+        playerACropBox: playerA.cropBox,
+        playerBCropBox: playerB.cropBox,
+      };
+      state.result = positionedResult;
+      this.io.to(roomId).emit("garment-result", positionedResult);
     } catch (error) {
       if (this.perceptionRooms.get(roomId) !== state || error?.name === "AbortError") return;
       this.io.to(roomId).emit("garment-unavailable", {

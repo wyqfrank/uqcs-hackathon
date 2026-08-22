@@ -44,6 +44,23 @@ export function mirrorRect(rect: NormalizedRect): NormalizedRect {
   return { ...rect, x: 1 - rect.x - rect.width };
 }
 
+/** Maps a crop-relative rectangle back into normalized source-video space. */
+export function projectRectIntoRect(
+  inner: NormalizedRect,
+  outer: NormalizedRect,
+): NormalizedRect {
+  const left = clamp(outer.x + inner.x * outer.width);
+  const top = clamp(outer.y + inner.y * outer.height);
+  const right = clamp(outer.x + (inner.x + inner.width) * outer.width);
+  const bottom = clamp(outer.y + (inner.y + inner.height) * outer.height);
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
+
 export function rectToPixels(
   rect: NormalizedRect,
   sourceWidth: number,
