@@ -1557,3 +1557,62 @@ kbd {
 
 .preview-bar .preview-play { margin-left: auto; background: var(--p2-dark); color: #fff; }
 .preview-bar .preview-play.is-active { background: var(--p2); color: var(--ink); }
+
+/* Preview harness: live model mode ------------------------------------- */
+
+.preview-bar .preview-live { margin-left: auto; background: var(--p1-dark); color: #fff; }
+.preview-bar .preview-live.is-active { background: var(--p1); color: var(--ink); }
+.preview-bar .preview-live + .preview-play { margin-left: 0; }
+
+.model-readout {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 300px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--ko-dark);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-2) 92%, transparent);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+}
+.model-readout header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.model-readout header code { color: var(--text-dim); font-size: 10px; }
+
+.model-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: .08em;
+  background: var(--panel-3);
+  color: var(--text-dim);
+}
+.model-pill.is-scoring { background: var(--p1); color: var(--ink); }
+.model-pill.is-error, .model-pill.is-unavailable { background: var(--ko); color: var(--ink); }
+
+.model-figures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.model-figures div { display: flex; flex-direction: column; gap: 2px; }
+.model-figures b { font-size: 20px; line-height: 1; }
+.model-figures small { color: var(--text-dim); font-size: 9px; letter-spacing: .06em; }
+
+.model-spark {
+  width: 100%;
+  height: 40px;
+  border: 1px solid var(--ko-dark);
+  border-radius: 8px;
+  background: var(--panel-3);
+}
+.model-spark polyline { fill: none; stroke: var(--p1); stroke-width: 1.5px; }
+
+.model-stats { display: flex; flex-direction: column; gap: 4px; margin: 0; }
+.model-stats div { display: flex; justify-content: space-between; gap: 10px; }
+.model-stats dt { color: var(--text-dim); }
+.model-stats dd { margin: 0; }
+
+.model-note { color: var(--text-dim); margin: 0; }
+.model-error { color: var(--ko); margin: 0; }
+.model-help { color: var(--text-dim); margin: 0; font-size: 11px; line-height: 1.45; }

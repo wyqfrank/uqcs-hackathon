@@ -56,6 +56,40 @@ def project(vector: np.ndarray, centre: np.ndarray, basis: np.ndarray) -> np.nda
     return reduced / max(norm, 1e-8)
 
 
+CALIBRATION_QUANTILES = 256
+
+
+def percentile_of(margin: float, calibration: np.ndarray) -> float:
+    """Where `margin` falls in a fitted score distribution, as 0..1.
+
+    The head is only ever trained on the *sign* of a score difference, so the
+    magnitude of `w.z` has no meaning on its own — nothing in the loss
+    constrains its scale. Rank against a reference distribution is the one
+    reading that survives a change of head, which is why the display mapping is
+    a percentile rather than a rescaled margin.
+    """
+    if calibration.size == 0:
+        return 0.5
+    below = float(np.searchsorted(calibration, margin, side="left"))
+    ties = float(np.searchsorted(calibration, margin, side="right")) - below
+    # Midpoint of any tied run, so identical scores map to one percentile
+    # rather than to the bottom of their run.
+    return (below + ties / 2.0) / calibration.size
+
+
+def load_calibration(artifact_dir: Path) -> np.ndarray:
+    """Sorted reference scores from the artifact, or an empty array.
+
+    Empty means the artifact predates calibration; callers should treat a
+    missing distribution as "cannot map to a display score" rather than
+    inventing one.
+    """
+    art = np.load(artifact_dir / "ranker.npz")
+    if "calibration" not in art.files:
+        return np.zeros(0, dtype=np.float64)
+    return np.sort(np.asarray(art["calibration"], dtype=np.float64))
+
+
 def load_scorer(
     artifact_dir: Path, embeddings: dict[str, np.ndarray]
 ) -> Callable[[str], float]:

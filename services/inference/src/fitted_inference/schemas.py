@@ -62,6 +62,27 @@ class GarmentHealthResponse(ApiModel):
     model_version: str
 
 
+class FitScoreHealthResponse(ApiModel):
+    ready: bool
+    model_version: str
+    reason: str | None = None
+
+
+class FitScoreResponse(ApiModel):
+    """One frame's live fit score.
+
+    `score` is for display. `percentile` and `raw` are exposed because the live
+    number is a rank against the training pool, not an absolute judgement, and
+    a caller comparing two players needs to know that.
+    """
+
+    score: float
+    percentile: float
+    raw: float
+    model_version: str
+    latency_ms: float
+
+
 class GarmentPairResponse(ApiModel):
     battle_id: str
     pair_id: str

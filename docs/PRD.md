@@ -66,6 +66,15 @@ This checklist is the high-level source of truth for specification and implement
 - [ ] Passing garment perception updates the live battle at approximately 1 FPS with one inference operation in flight and no queued frames.
 - [x] A frozen visual-encoder baseline is implemented and evaluated.
 - [x] A pairwise scoring head is implemented and evaluated.
+- [x] The trained ranker is served on a live path: the artifact carries its own
+      display calibration, and `POST /v1/fit-score` returns a calibrated score
+      for one frame in approximately 95 ms warm on CPU.
+- [x] The preview harness can drive the real ranker from a real camera, with a
+      readout of raw spread and latency.
+- [ ] The live ranker is verified on real webcam frames: stable across frames of
+      one outfit, and ordering two visibly different outfits correctly.
+- [ ] The live battle shows a model-derived score instead of the seeded
+      placeholder in `apps/web/lib/scoring.ts`.
 - [x] Scoring-head capacity and function class are evaluated and rejected as the
       bottleneck. PCA dimensions are flat to 384 (no compression), and a ReLU MLP
       head is *worse* than linear on held-out teacher fidelity (0.655-0.663 versus

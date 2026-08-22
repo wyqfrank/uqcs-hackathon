@@ -24,8 +24,17 @@ from .perception import (
     InvalidGarmentImageError,
     create_garment_detector,
 )
+from .ranker import (
+    FitRanker,
+    InvalidRankerImageError,
+    RankerModelNotReadyError,
+    UnavailableFitRanker,
+    create_fit_ranker,
+)
 from .schemas import (
     ComparisonResponse,
+    FitScoreHealthResponse,
+    FitScoreResponse,
     GarmentHealthResponse,
     GarmentPairResponse,
     GarmentPerceptionResponse,
@@ -40,6 +49,7 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     app.state.engine = create_engine(settings)
     app.state.garment_detector = create_garment_detector(settings)
+    app.state.fit_ranker = create_fit_ranker(settings)
     yield
 
 
@@ -63,6 +73,10 @@ def get_engine(request: Request) -> InferenceEngine:
 
 def get_garment_detector(request: Request) -> GarmentDetector:
     return request.app.state.garment_detector
+
+
+def get_fit_ranker(request: Request) -> FitRanker:
+    return request.app.state.fit_ranker
 
 
 async def read_image(upload: UploadFile) -> bytes:
@@ -159,6 +173,45 @@ async def detect_garments(
         raise HTTPException(status_code=503, detail=str(error)) from error
     except InvalidGarmentImageError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/v1/fit-score/health", response_model=FitScoreHealthResponse)
+async def fit_score_health(request: Request) -> FitScoreHealthResponse:
+    ranker = get_fit_ranker(request)
+    return FitScoreHealthResponse(
+        ready=ranker.ready,
+        model_version=ranker.model_version,
+        reason=ranker.reason if isinstance(ranker, UnavailableFitRanker) else None,
+    )
+
+
+@app.post("/v1/fit-score", response_model=FitScoreResponse)
+async def fit_score(
+    request: Request,
+    image: Annotated[UploadFile, File(description="One live webcam frame")],
+) -> FitScoreResponse:
+    """Score a single frame. Called about once a second per player.
+
+    Deliberately stateless and single-image: pairing, smoothing and any
+    comparison between the two players belong to the caller, which already
+    owns the round. Keeping this endpoint pointwise is also what lets the head
+    be swapped without the transport changing.
+    """
+    contents = await read_image(image)
+    ranker = get_fit_ranker(request)
+    try:
+        result = await run_in_threadpool(ranker.score, contents)
+    except RankerModelNotReadyError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except InvalidRankerImageError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return FitScoreResponse(
+        score=result.score,
+        percentile=result.percentile,
+        raw=result.raw,
+        model_version=ranker.model_version,
+        latency_ms=result.latency_ms,
+    )
 
 
 @app.post("/v1/garments/pair", response_model=GarmentPairResponse)

@@ -20,6 +20,11 @@ class Settings:
     garment_text_threshold: float
     garment_device: str | None
     garment_local_files_only: bool
+    ranker_enabled: bool
+    ranker_artifact_dir: str
+    ranker_device: str | None
+    ranker_display_min: float
+    ranker_display_max: float
     cors_origins: tuple[str, ...]
     max_image_bytes: int
     max_burst_bytes: int
@@ -47,6 +52,17 @@ def get_settings() -> Settings:
             "FITTED_GARMENT_LOCAL_FILES_ONLY", "false"
         ).lower()
         in {"1", "true", "yes"},
+        ranker_enabled=os.getenv("FITTED_RANKER_ENABLED", "true").lower()
+        in {"1", "true", "yes"},
+        ranker_artifact_dir=os.getenv("FITTED_RANKER_ARTIFACT_DIR", "models/ranker"),
+        ranker_device=os.getenv("FITTED_RANKER_DEVICE") or None,
+        # The live estimate has always occupied a band rather than the full
+        # 0-100: a percentile mapped straight onto 0-100 puts the median outfit
+        # on 50 and the worst on 0, which reads as an insult rather than a
+        # score. The band is product policy, so it lives here; the distribution
+        # it maps from is model policy and lives in the artifact.
+        ranker_display_min=float(os.getenv("FITTED_RANKER_DISPLAY_MIN", "55")),
+        ranker_display_max=float(os.getenv("FITTED_RANKER_DISPLAY_MAX", "85")),
         cors_origins=tuple(origin.strip() for origin in origins.split(",") if origin.strip()),
         max_image_bytes=int(os.getenv("FITTED_MAX_IMAGE_BYTES", str(5 * 1024 * 1024))),
         max_burst_bytes=int(

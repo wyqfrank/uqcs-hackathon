@@ -37,7 +37,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from ranker_artifact import ACTIVATIONS, load_scorer, numpy_activation
+from ranker_artifact import (
+    ACTIVATIONS,
+    CALIBRATION_QUANTILES,
+    load_scorer,
+    numpy_activation,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 POOL_DIR = REPO_ROOT / "apps" / "web" / "public" / "label-pool"
@@ -917,16 +922,46 @@ def main() -> None:
         else:
             print("  (no --compare-linear-artifact given; corr(mlp, linear) not computed)")
 
+    # Display calibration. The head is trained on the sign of a difference, so a
+    # raw margin has no scale of its own, but the live path has to show 0-100.
+    # Storing the score distribution over the training images lets the service
+    # map a new score to its rank without re-deriving anything, and keeps that
+    # mapping attached to the weights it belongs to — swap the artifact and the
+    # calibration swaps with it, which is what makes a head change drop-in.
+    # Train split only: val and test images do not inform anything the product shows.
+    print()
+    calibration_scorer = make_scorer(params, args.head, args.activation)
+    calibration_images = sorted(i for i, split in splits.items() if split == "train")
+    train_scores = np.sort(
+        np.asarray(calibration_scorer(np.stack([reduced[i] for i in calibration_images])))
+    )
+    calibration = np.interp(
+        np.linspace(0.0, 1.0, CALIBRATION_QUANTILES),
+        np.linspace(0.0, 1.0, train_scores.size),
+        train_scores,
+    ).astype(np.float32)
+    print(
+        ""
+        f"calibration: {train_scores.size} train images -> "
+        f"{CALIBRATION_QUANTILES} quantiles, "
+        f"raw range [{train_scores[0]:.3f}, {train_scores[-1]:.3f}]"
+    )
+
     args.artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact = args.artifact_dir / "ranker.npz"
     if args.head == "linear":
-        np.savez(artifact, centre=centre, basis=basis, weights=params["weights"])
+        np.savez(
+            artifact,
+            centre=centre, basis=basis, weights=params["weights"],
+            calibration=calibration,
+        )
     else:
         np.savez(
             artifact,
             centre=centre, basis=basis,
             w1=params["w1"], b1=params["b1"], w2=params["w2"],
             activation=np.array(args.activation),
+            calibration=calibration,
         )
     (args.artifact_dir / "ranker.json").write_text(
         json.dumps(
@@ -946,6 +981,11 @@ def main() -> None:
                 "ratersRequested": sorted(selected) if selected else "all",
                 "teacherPairs": len(teacher) if teacher else 0,
                 "teacher": teacher_report,
+                "calibration": {
+                    "quantiles": CALIBRATION_QUANTILES,
+                    "fittedOnImages": len(calibration_images),
+                    "rawRange": [float(train_scores[0]), float(train_scores[-1])],
+                },
                 "projectionFittedOn": (
                     f"{args.projection}-pool" if args.teacher else "train-images"
                 ),

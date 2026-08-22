@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BattleStage } from "@/components/BattleStage";
+import { useCamera } from "@/hooks/useCamera";
+import { useLiveFitScore } from "@/hooks/useLiveFitScore";
 import { SCENARIOS } from "./scenarios";
+import { LiveModelReadout } from "./LiveModelReadout";
 import { useSimulatedRound } from "./useSimulatedRound";
 
 /**
@@ -59,6 +62,18 @@ export function PreviewStage() {
 
   const sim = useSimulatedRound();
   const scenario = SCENARIOS[index];
+
+  // Live model mode: a real camera and the real ranker, so the scores on
+  // screen come from the model rather than from a random walk. The rest of the
+  // harness stays mocked — this answers "does the model work on webcam input",
+  // which no amount of offline evaluation on curated photos can.
+  const [liveModel, setLiveModel] = useState(false);
+  const camera = useCamera(false);
+  const fit = useLiveFitScore(localVideoRef, liveModel);
+  useEffect(() => {
+    if (liveModel) void camera.startCamera();
+    else camera.stopCamera();
+  }, [liveModel, camera.startCamera, camera.stopCamera]);
   // While a round is playing it drives the screen; otherwise the picked
   // scenario does. One switch keeps the two from fighting over the state.
   const live = sim.running || sim.state.phase === "final";
@@ -66,8 +81,11 @@ export function PreviewStage() {
   useEffect(() => setDismissed(null), [index]);
 
   const [localScore, remoteScore] = useMemo<[number | null, number | null]>(
-    () => (live ? (sim.scores ?? [null, null]) : (scenario.scores ?? [null, null])),
-    [live, sim.scores, scenario],
+    () => {
+      if (liveModel) return [fit.smoothed, null];
+      return live ? (sim.scores ?? [null, null]) : (scenario.scores ?? [null, null]);
+    },
+    [live, liveModel, fit.smoothed, sim.scores, scenario],
   );
 
   return (
@@ -79,6 +97,12 @@ export function PreviewStage() {
             {s.label}
           </button>
         ))}
+        <button
+          className={`preview-live ${liveModel ? "is-active" : ""}`}
+          onClick={() => { sim.stop(); setLiveModel((on) => !on); }}
+        >
+          {liveModel ? "■ STOP MODEL" : "◉ LIVE MODEL"}
+        </button>
         <button className={`preview-play ${live ? "is-active" : ""}`} onClick={sim.running ? sim.stop : sim.start}>
           {sim.running ? "■ STOP" : "▶ PLAY ROUND"}
         </button>
@@ -95,13 +119,17 @@ export function PreviewStage() {
           error: scenario.connectionError ?? null,
         }}
         camera={{
-          status: live ? "ready" : (scenario.cameraStatus ?? "ready"),
-          error: live ? null : (scenario.cameraError ?? null),
-          hasStream: live ? true : scenario.hasLocalStream !== false,
+          status: liveModel ? camera.status : live ? "ready" : (scenario.cameraStatus ?? "ready"),
+          error: liveModel ? camera.error : live ? null : (scenario.cameraError ?? null),
+          hasStream: liveModel
+            ? camera.stream !== null
+            : live ? true : scenario.hasLocalStream !== false,
         }}
         local={{
           videoRef: localVideoRef,
-          stream: !live && scenario.hasLocalStream === false ? null : localStream,
+          stream: liveModel
+            ? camera.stream
+            : !live && scenario.hasLocalStream === false ? null : localStream,
           score: localScore,
           waitingText: scenario.cameraStatus === "denied" ? "CAMERA BLOCKED" : "CAMERA OFF",
           garmentCategories: [],
@@ -121,7 +149,9 @@ export function PreviewStage() {
           isBusy: ["collecting", "analysing"].includes((live ? sim.state : scenario.state).phase),
           isLocked: (live ? sim.state : scenario.state).phase === "final",
           canRematch: (live ? sim.state : scenario.state).phase === "final",
-          scoresAreProvisional: live ? sim.provisional : (scenario.provisional ?? false),
+          scoresAreProvisional: liveModel
+            ? true
+            : live ? sim.provisional : (scenario.provisional ?? false),
           error: null,
           canFinalise: (live ? sim.state : scenario.state).phase === "countdown",
         }}
@@ -133,6 +163,7 @@ export function PreviewStage() {
         onLeave={() => {}}
         onDismissResult={setDismissed}
       />
+      {liveModel ? <LiveModelReadout fit={fit} cameraStatus={camera.status} /> : null}
     </div>
   );
 }

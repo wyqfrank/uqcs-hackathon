@@ -252,18 +252,32 @@ supply is not a limit.
 open questions in the PRD and never benchmarked. If DINOv2's features do not
 encode what Gemini reacts to, no head shape or training data fixes it.
 
-**3. Wire to the app.** Replaces a seeded fake with something real. Needs: load
-the artifact in `src/fitted_inference`, add DINOv2 embedding to the live path
-(**71 ms/frame measured on this CPU**), calibrate `w·z` to a 0–100 display score,
-replace the client's seeded estimate.
+**3. Wire to the app — done for the preview harness, not yet for a battle.**
+`src/fitted_inference/ranker.py` loads the artifact and serves
+`POST /v1/fit-score` (~95 ms/frame warm on this CPU, measured end to end
+including decode). The artifact now carries its own calibration — 256 quantiles
+of the training-image score distribution — so a raw margin becomes a percentile
+and then a display score without the app knowing anything about the head. Swap
+the artifact and the mapping swaps with it.
 
-### Before anything reaches the app
+The preview route's **◉ LIVE MODEL** mode runs it against a real camera with a
+diagnostic readout. **The remaining work is the battle path**: per-player
+scoring through the round coordinator, and deciding leaning-vs-leader in the UI.
 
-**Nobody has ever run this model on a real webcam frame.** It was trained
-entirely on curated full-body photos; live input is a 640 px webcam crop under
-venue lighting. Check that scores are stable across frames of one outfit and
-correctly order two visibly different outfits. If that fails, wiring it up merely
-substitutes a differently fake number.
+### Before it reaches a real battle
+
+**The webcam check has an instrument now, but has not been run.** The model was
+trained entirely on curated full-body photos; live input is a 640 px webcam crop
+under venue lighting, and an embedding that lands off the fitted manifold still
+returns a confident score — the failure is silent.
+
+`/preview` → **◉ LIVE MODEL** reports raw spread and range over a rolling window.
+Two checks: scores stable across frames of one outfit, and two visibly different
+outfits ordered correctly, with non-overlapping ranges. Both read raw margins
+rather than the smoothed display score, because smoothing hides precisely the
+instability being tested. If stability fails, wiring it into a battle substitutes
+a differently fake number — a worse outcome than the honest placeholder, because
+it looks credible.
 
 Also consider presenting the live score as a range or "leaning" rather than a
 hard leader. At 0.661 student–teacher agreement the live leader contradicts the
