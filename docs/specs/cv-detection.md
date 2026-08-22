@@ -6,6 +6,14 @@
 **Scope:** Live person detection, pose tracking, frame-quality validation, and canonical outfit cropping  
 **Out of scope for this implementation:** Taste scoring, source-expert training, pairwise calibration, VLM serving, and production deployment. Their contracts with detection are documented below.
 
+This document expands the CV requirements in [`docs/PRD.md`](../PRD.md). The PRD remains the source of truth for product scope and high-level delivery status; this checklist tracks the detailed CV work.
+
+Task status uses Markdown checkboxes throughout this specification:
+
+- `[ ]` means incomplete, undecided, blocked, or not yet verified.
+- `[x]` means the exact stated outcome is implemented and verified.
+- Update the relevant checkbox when a change completes or invalidates a tracked outcome.
+
 ## 1. Purpose
 
 The detection pipeline must convert a moving webcam feed into a recent, stable, consistently framed outfit image that is suitable for the visual encoder and scoring model.
@@ -85,10 +93,22 @@ HTMLVideoElement at camera frame rate
                                │
                     temporal state machine
                                │
-                     candidate-frame buffer
+                    candidate-frame buffer
 ```
 
-The final transport of valid crops to the inference service is intentionally left to the inference-service specification. The detection contract must work whether the host coordinates both players or each client submits its own local crop.
+The current PRD direction uses the host browser as the initial inference coordinator. At a rate-limited scoring tick, the host captures one explicit local/remote frame pair and submits it to the separate Python inference service at `/v1/compare`. The service revalidates frame quality and applies the selected canonical preprocessing consistently before scoring. Only one comparison may be in flight; a busy tick is discarded.
+
+```text
+Guest local feed ──► guest framing guidance
+       │
+       └──────── WebRTC remote feed ────────┐
+                                            │
+Host local feed ───► host framing guidance  ├──► paired /v1/compare request
+                                            │
+Host remote video element ──────────────────┘
+```
+
+This is a proposed first transport, not a final architecture decision. It must be tested for asymmetric WebRTC compression and capture quality. If it materially biases comparisons, each player should instead submit its locally selected frame and the service should pair the latest submissions by room. The detection contract must therefore remain usable by both coordinator models.
 
 ## 6. Scheduling and backpressure
 
@@ -143,13 +163,24 @@ type FrameQualityMetrics = {
   motion: number;
 };
 
-type DetectedOutfitFrame = {
+type VisibleRegions = {
+  head: boolean;
+  torso: boolean;
+  legs: boolean;
+  feet: boolean;
+};
+
+type OutfitDetectionResult = {
   capturedAt: number;
-  status: OutfitFrameStatus;
+  observedStatus: OutfitFrameStatus;
+  stableStatus: OutfitFrameStatus;
+  scoreable: boolean;
   personBox: NormalizedRect | null;
   cropBox: NormalizedRect | null;
   landmarks: PoseLandmark[];
+  visibleRegions: VisibleRegions;
   quality: FrameQualityMetrics;
+  processingMs: number;
 };
 ```
 
@@ -356,70 +387,83 @@ Measured performance must be recorded for both players' intended devices. If tar
 
 ### Unit tests
 
-- Landmark-group visibility classification.
-- Person-box and padded-crop calculations.
-- Bounds clamping and aspect-ratio padding.
-- Temporal hysteresis state transitions.
-- Motion calculation.
-- Candidate expiry and deterministic selection.
-- Resource cleanup and worker error handling where testable.
+- [x] Landmark-group visibility classification.
+- [x] Person-box and padded-crop calculations.
+- [x] Bounds clamping and safe pixel conversion.
+- [ ] Encoder aspect-ratio padding and resize-without-stretching.
+- [x] Temporal hysteresis state transitions.
+- [x] Motion calculation.
+- [x] Candidate expiry and deterministic selection.
+- [x] Expired and overflow candidate-resource cleanup.
+- [ ] Worker error and lifecycle cleanup where testable.
 
 ### Fixture set
 
-Create at least 50–100 representative stills or short sequences covering:
+Create and classify at least 50–100 representative stills or short sequences. Track fixture coverage explicitly:
 
-- correctly framed outfits;
-- person too near and too far;
-- cropped head, torso, legs, and shoes;
-- multiple people;
-- no person;
-- low light and backlighting;
-- motion blur;
-- dark clothing;
-- dresses, skirts, wide-leg trousers, and layered outerwear;
-- bags, hats, and accessories extending beyond the body;
-- front, side, back, and turning poses;
-- varied body shapes, skin tones, mobility, and gender presentation.
+- [ ] Correctly framed outfits.
+- [ ] Person too near and too far.
+- [ ] Cropped head, torso, legs, and shoes.
+- [ ] Multiple people.
+- [ ] No person.
+- [ ] Low light and backlighting.
+- [ ] Motion blur.
+- [ ] Dark clothing.
+- [ ] Dresses, skirts, wide-leg trousers, and layered outerwear.
+- [ ] Bags, hats, and accessories extending beyond the body.
+- [ ] Front, side, back, and turning poses.
+- [ ] Varied body shapes, skin tones, mobility, and gender presentation.
 
 Training, tuning, and evaluation fixtures must be separated where thresholds are learned from the data.
 
 ### Integration tests
 
-- Video remains interactive while the worker runs.
-- No frame queue develops during sustained motion.
-- Detection results retain correct timestamps.
-- A brief miss does not cause UI flicker.
-- A stale result is never sent as a new scoring frame.
-- Camera stop, restart, room leave, and component unmount release detection resources.
+- [ ] Video remains interactive while the worker runs on both intended laptops.
+- [ ] No frame queue develops during sustained motion.
+- [ ] Detection results retain correct timestamps.
+- [ ] A brief miss does not cause UI flicker.
+- [ ] A stale result is never sent as a new scoring frame.
+- [ ] Camera stop, restart, room leave, and component unmount release detection resources.
+- [ ] The host submits one explicit local/remote pair with at most one `/v1/compare` request in flight.
+- [ ] Host-captured remote frames are checked for asymmetric WebRTC quality bias.
 
 ### Acceptance criteria before finalising this spec
 
-- Pose Lite and Pose Full are benchmarked on the intended laptops.
-- Initial thresholds are evaluated on the fixture set.
-- Valid crops retain the complete outfit and accessories at an agreed rate.
-- False acceptance of cropped or multi-person frames is measured.
-- Motion behaviour is tested with walking, turning, and a controlled spin.
-- The selected preprocessing variant is evaluated for score stability and person/background bias.
-- Client-versus-host detection ownership is reconciled with the inference-service design.
+- [ ] Pose Lite and Pose Full are benchmarked on the intended laptops.
+- [ ] Initial thresholds are evaluated on the fixture set.
+- [ ] Valid crops retain the complete outfit and accessories at an agreed rate.
+- [ ] False acceptance of cropped or multi-person frames is measured.
+- [ ] Motion behaviour is tested with walking, turning, and a controlled spin.
+- [ ] The selected preprocessing variant is evaluated for score stability and person/background bias.
+- [ ] The host-coordinator transport is validated or replaced with per-client submission based on measured quality.
+- [ ] Detection ownership, pairing, and frame transport are recorded as final decisions in the PRD.
 
 ## 17. Proposed file organisation
 
 ```text
-hooks/
-  useOutfitDetection.ts
+apps/web/
+  hooks/
+    useOutfitDetection.ts
+  lib/
+    cv/
+      candidates.ts
+      config.ts
+      crop.ts
+      frame-quality.ts
+      motion.ts
+      temporal.ts
+      types.ts
+  workers/
+    pose-detection.worker.ts
 
-lib/
-  cv/
-    crop.ts
-    frame-quality.ts
-    motion.ts
-    types.ts
-
-workers/
-  pose-detection.worker.ts
+services/inference/
+  src/fitted_inference/
+    engine.py
+    main.py
+    schemas.py
 ```
 
-Keep pure crop, quality, motion, and state-transition logic outside React and the worker so it can be unit tested directly.
+Keep pure crop, quality, motion, candidate-selection, and state-transition logic outside React and the worker so it can be unit tested directly. Keep model loading, paired-image validation, and comparison response construction inside the installable inference-service package; do not move ML dependencies into `apps/web/`.
 
 ## 18. Implementation sequence
 
@@ -434,6 +478,8 @@ Keep pure crop, quality, motion, and state-transition logic outside React and th
 - [x] Add brightness, blur, and motion metrics.
 - [x] Implement the recent candidate-frame buffer and selector.
 - [x] Integrate detection status into the battle UI.
+- [ ] Pad and resize selected crops to the encoder input shape without stretching.
+- [ ] Connect host-coordinated paired capture to the `/v1/compare` service boundary.
 - [ ] Connect selected crops to the visual-encoder baseline.
 - [ ] Test camera restart, disconnect, and cleanup behaviour.
 - [ ] Run face-blur and background-neutralisation ablations.
@@ -441,19 +487,21 @@ Keep pure crop, quality, motion, and state-transition logic outside React and th
 
 ## 19. Open decisions
 
-- Pose Lite versus Pose Full after benchmarking.
-- Final landmark visibility and framing thresholds.
-- Exact brightness, blur, and motion thresholds.
-- Whether face blurring becomes the default preprocessing path.
-- Whether background segmentation improves fairness without removing useful accessories or silhouette.
-- Whether garment boxes or masks materially improve target-audience preference accuracy.
+- [ ] Pose Lite versus Pose Full after benchmarking.
+- [ ] Final landmark visibility and framing thresholds.
+- [ ] Exact brightness, blur, and motion thresholds.
+- [ ] Whether face blurring becomes the default preprocessing path.
+- [ ] Whether background segmentation improves fairness without removing useful accessories or silhouette.
+- [ ] Whether garment boxes or masks materially improve target-audience preference accuracy.
+- [ ] Whether host-coordinated capture is sufficiently fair or per-client submission is required.
 
 Decisions locked for the initial implementation:
 
 - detection runs independently on each player's local, uncompressed camera feed;
 - missing feet are allowed when head, torso, and knee evidence is usable;
 - Chrome and Edge are the supported initial browsers;
-- selected crops remain local until the inference-transport design is specified.
+- the separate Python service owns online model inference;
+- a paired host request is the first transport to test, while final transport ownership remains open.
 
 ## 20. Webcam-like human calibration frames
 
@@ -618,14 +666,14 @@ StreamingVLM is deferred. The published [StreamingVLM](https://proceedings.iclr.
 
 ## 24. Thirty-hour decision gates
 
-1. Establish a working paired-image VLM response and fallback first.
-2. Prepare webcam-like calibration images and safe person/outfit/session splits.
-3. Cache DINOv2 Small and/or SigLIP 2 Base embeddings rather than fine-tuning an encoder.
-4. Train the Instagram residual head if its cleaned metadata is ready.
-5. Add Depop only if its data is ready and it improves held-out FITTED agreement.
-6. Train the small human-calibrated combiner.
-7. Integrate frame-quality states, explanation and result synchronisation.
-8. Reserve the final hours for two-laptop rehearsal and failure recovery.
+- [ ] Establish a working paired-image VLM response and fallback first.
+- [ ] Prepare webcam-like calibration images and safe person/outfit/session splits.
+- [ ] Cache DINOv2 Small and/or SigLIP 2 Base embeddings rather than fine-tuning an encoder.
+- [ ] Train the Instagram residual head if its cleaned metadata is ready.
+- [ ] Add Depop only if its data is ready and it improves held-out FITTED agreement.
+- [ ] Train the small human-calibrated combiner.
+- [ ] Integrate frame-quality states, explanation, and result synchronisation.
+- [ ] Rehearse the complete two-laptop flow and failure recovery.
 
 Stop source-expert work if the data cannot be cleaned and split safely. Do not integrate a learned ranker that fails person/creator-disjoint validation. Preserve a paired VLM-only path as the reliable demo fallback.
 
@@ -637,17 +685,17 @@ After the model is validated, production may export stable models to ONNX and be
 
 ## 26. Calibration and expert evaluation
 
-Evaluate:
+Evaluation tasks:
 
-- pairwise agreement with held-out human labels;
-- inter-rater agreement;
-- person-, creator-, outfit- and session-disjoint performance;
-- A/B swap invariance;
-- draw and `cannot_judge` behaviour;
-- stability across representative frames of one outfit;
-- sensitivity to background, lighting, pose and camera quality;
-- the incremental value of every expert; and
-- median and 95th-percentile live latency.
+- [ ] Measure pairwise agreement with held-out human labels.
+- [ ] Measure inter-rater agreement.
+- [ ] Measure person-, creator-, outfit-, and session-disjoint performance.
+- [ ] Verify A/B swap invariance.
+- [ ] Evaluate draw and `cannot_judge` behaviour.
+- [ ] Measure stability across representative frames of one outfit.
+- [ ] Measure sensitivity to background, lighting, pose, and camera quality.
+- [ ] Measure the incremental value of every expert.
+- [ ] Record median and 95th-percentile live latency.
 
 Compare at least a VLM-only baseline, Instagram-only expert and human-calibrated ensemble. Remove an expert if it does not add held-out signal, regardless of its training-set performance.
 

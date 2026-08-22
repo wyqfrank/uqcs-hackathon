@@ -35,6 +35,7 @@ This checklist is the high-level source of truth for specification and implement
 
 ### Implementation status
 
+- [x] The repository separates the web/signalling workspace from an installable Python inference-service package with a health endpoint and typed comparison boundary.
 - [x] Landing page supports creating and joining a room with room-code validation.
 - [x] Socket.IO room creation, joining, capacity limits, SDP relay, leaving, and reconnection pass the signalling smoke test.
 - [x] Local camera lifecycle and camera error states are implemented.
