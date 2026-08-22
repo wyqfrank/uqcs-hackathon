@@ -1,8 +1,23 @@
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import next from "next";
 import { Server as SocketIOServer } from "socket.io";
+
+// Next reads env files relative to apps/web. Secrets shared with the Python
+// service naturally live at the repo root, so load those too — without
+// overriding anything apps/web already defines.
+const here = dirname(fileURLToPath(import.meta.url));
+for (const envFile of [".env", ".env.local"]) {
+  const path = resolve(here, "../..", envFile);
+  try {
+    process.loadEnvFile(path);
+  } catch {
+    // Absent or unreadable: apps/web's own env files still apply.
+  }
+}
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
@@ -45,12 +60,12 @@ io.on("connection", (socket) => {
     const sockets = await io.in(normalizedRoomId).fetchSockets();
 
     if (!/^FIT-\d{4}$/.test(normalizedRoomId)) {
-      acknowledge({ ok: false, error: "Invalid room code." });
+      acknowledge({ ok: false, code: "invalid-code", error: "Invalid room code." });
       return;
     }
 
     if (sockets.length >= 2) {
-      acknowledge({ ok: false, error: "This battle already has two players." });
+      acknowledge({ ok: false, code: "room-full", error: "This battle already has two players." });
       return;
     }
 
@@ -68,12 +83,14 @@ io.on("connection", (socket) => {
     const sockets = await io.in(normalizedRoomId).fetchSockets();
 
     if (sockets.length === 0) {
-      acknowledge({ ok: false, error: "Battle not found. Check the room code." });
+      // Not necessarily a bad code: the host may still be loading. The guest
+      // retries on this code rather than showing a dead end straight away.
+      acknowledge({ ok: false, code: "not-found", error: "Battle not found. Check the room code." });
       return;
     }
 
     if (sockets.length >= 2) {
-      acknowledge({ ok: false, error: "This battle already has two players." });
+      acknowledge({ ok: false, code: "room-full", error: "This battle already has two players." });
       return;
     }
 

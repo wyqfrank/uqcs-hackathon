@@ -856,3 +856,57 @@ button:focus-visible, input:focus-visible {
   font-size: 1rem;
   letter-spacing: .08em;
 }
+
+/* --- Connection route readout ------------------------------------------ */
+.route-tag { color: var(--text-dim); }
+.route-tag.is-relayed { color: var(--ko-light); }
+
+/* Camera and connection can fail independently, so their banners stack. */
+.error-stack { position: relative; z-index: 3; width: min(700px, 92vw); margin: 14px auto -20px; display: flex; flex-direction: column; gap: 8px; }
+.error-stack .error-banner { width: 100%; margin: 0; }
+.error-banner a { color: var(--p1-light); letter-spacing: .12em; font-weight: 700; white-space: nowrap; margin-left: auto; }
+
+/* --- Network diagnostics ------------------------------------------------ */
+.diagnostics-shell { min-height: 100vh; position: relative; overflow: hidden; display: flex; flex-direction: column; background: var(--ink); }
+.diagnostics-body { position: relative; z-index: 2; width: min(760px, 92vw); margin: 0 auto; padding: 46px 0 70px; }
+.diagnostics-head { margin-bottom: 30px; }
+.eyebrow-plain { color: var(--ko); font-size: .58rem; font-weight: 800; letter-spacing: .23em; }
+.diagnostics-head h1 { margin: 14px 0 13px; font-size: clamp(2rem, 5vw, 3.2rem); line-height: .95; letter-spacing: -.01em; text-wrap: balance; }
+.diagnostics-head p { margin: 0; color: var(--text-dim); font-size: .82rem; line-height: 1.6; max-width: 52ch; }
+.diagnostics-status { display: flex; align-items: center; gap: 11px; color: var(--text-dim); font-size: .6rem; font-weight: 700; letter-spacing: .16em; padding: 22px 0; }
+.diagnostics-status svg { width: 16px; }
+.spin { animation: spin 1s linear infinite; }
+
+.verdict { display: flex; gap: 16px; align-items: flex-start; padding: 19px 21px; border: 2px solid var(--outline); background: var(--panel); }
+.verdict svg { width: 26px; flex-shrink: 0; margin-top: 2px; }
+.verdict b { display: block; font-size: .78rem; letter-spacing: .12em; margin-bottom: 7px; }
+.verdict span { color: var(--text-dim); font-size: .78rem; line-height: 1.6; }
+.verdict-good { border-color: var(--p2-dark); }
+.verdict-good svg, .verdict-good b { color: var(--p2); }
+.verdict-warn { border-color: var(--ko-dark); }
+.verdict-warn svg, .verdict-warn b { color: var(--ko); }
+.verdict-bad { border-color: var(--p1-dark); }
+.verdict-bad svg, .verdict-bad b { color: var(--p1); }
+
+.check-list { list-style: none; margin: 22px 0 0; padding: 0; border: 2px solid var(--outline); background: var(--cabinet); }
+.check-list li { display: grid; grid-template-columns: auto 1fr auto; gap: 5px 13px; align-items: center; padding: 15px 19px; border-bottom: 1px solid var(--panel-3); }
+.check-list li:last-child { border-bottom: 0; }
+.check-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-ghost); }
+.check-list li.is-found .check-dot { background: var(--p2); box-shadow: 0 0 11px var(--p2-dark); }
+.check-list b { font-size: .66rem; letter-spacing: .13em; color: var(--text-dimmer); }
+.check-list li.is-found b { color: var(--foreground); }
+.check-state { font-size: .55rem; letter-spacing: .13em; color: var(--text-faint); }
+.check-list li.is-found .check-state { color: var(--p2); }
+.check-list small { grid-column: 2 / -1; color: var(--text-dimmer); font-size: .68rem; line-height: 1.5; }
+
+.probe-errors { margin-top: 20px; padding: 15px 19px; border: 1px solid var(--panel-3); background: var(--sunken); }
+.probe-errors b { display: block; font-size: .58rem; letter-spacing: .16em; color: var(--text-dimmer); margin-bottom: 9px; }
+.probe-errors ul { margin: 0; padding-left: 17px; }
+.probe-errors li { color: var(--text-dimmer); font-size: .68rem; line-height: 1.7; word-break: break-all; }
+.probe-note { margin-top: 18px; color: var(--text-faint); font-size: .68rem; line-height: 1.6; }
+.diagnostics-actions { margin-top: 26px; display: flex; align-items: center; gap: 22px; }
+.diagnostics-actions .secondary-action:disabled { opacity: .5; cursor: not-allowed; }
+.back-link { display: flex; align-items: center; gap: 8px; color: var(--text-dimmer); font-size: .58rem; font-weight: 700; letter-spacing: .15em; }
+.back-link svg { width: 14px; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
