@@ -16,6 +16,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "httpx>=0.28,<1",
+  # test_api, test_rfdetr_perception and test_vlm_engine import PIL directly,
+  # so the test suite cannot collect without it.
+  "pillow>=11,<13",
   "pytest>=8.3,<9",
   "ruff>=0.9,<1",
 ]

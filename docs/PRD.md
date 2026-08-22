@@ -86,14 +86,12 @@ Last verified against the working tree on 2026-08-22.
       capacity, SDP relay, and reconnect.
 - [x] Web unit tests pass: 23 tests across 7 files covering scoring, garment
       perception, frame capture, and the CV modules.
-- [ ] Python inference tests run in the standard dev environment. Currently
-      blocked: `test_api.py`, `test_rfdetr_perception.py` and `test_vlm_engine.py`
-      import `PIL` unconditionally, but `pillow` is declared only in the `ml`,
-      `rf` and `vlm` extras — not in `dev`. `npm run test:api` fails at collection
-      on a dev-only install.
-- [ ] `npm run test:web` succeeds through the npm workspace wrapper. The
-      `test:unit` script passes an unquoted `--exclude scripts/**` glob, which the
-      shell expands before vitest sees it; running vitest directly passes.
+- [x] Python inference tests pass: 56 passed, 1 skipped, covering the API,
+      perception, RF-DETR, scoring and VLM engine. Requires `npm run setup`,
+      which installs the `dev,vlm` extras; a stale virtualenv predating the
+      `vlm` extra fails at collection because three test modules import `PIL`.
+      `pillow` is now also declared in `dev` so the suite collects regardless of
+      which extra is selected.
 - [ ] Real webcam, motion, detection, scoring, and two-device behaviour are verified together.
 
 ---
