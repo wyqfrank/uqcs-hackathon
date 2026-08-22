@@ -92,7 +92,7 @@ Last verified against the working tree on 2026-08-22.
 - [x] Production build passes (`npm run build`).
 - [x] Signalling smoke test passes (`npm run test:signaling`) — create, join,
       capacity, SDP relay, and reconnect.
-- [x] Web unit tests pass: 40 tests across 8 files covering scoring, garment
+- [x] Web unit tests pass: 45 tests across 9 files covering scoring, garment
       perception, frame capture, and the CV modules.
 - [x] Scoring coordinator tests pass: 21 tests covering readiness, countdown,
       burst capture, fallback, backpressure, stale work, and reconnect replay.
