@@ -57,6 +57,10 @@ export function BattleRoom({
     outfitDetection,
     rtc.connectionState === "connected" && !scoring.isBusy && !scoring.isLocked,
   );
+  // Garment boxes belong to the live round. Once finalisation starts the server
+  // pauses perception, so anything still drawn is a stale reading of a frame
+  // that is no longer being judged — and it clutters the result reveal.
+  const showGarmentOverlays = !scoring.isBusy && !scoring.canRematch;
   const finalResult = scoring.state.phase === "final" ? scoring.state.result : null;
   const displayedScores = finalResult
     ? scoresForRole(finalResult, role)
@@ -152,7 +156,7 @@ export function BattleRoom({
             waitingText={camera.status === "requesting" ? "OPENING CAMERA" : "CAMERA OFF"}
             detection={{ state: outfitDetection.detectorState, result: outfitDetection.result }}
             garmentCategories={garmentPerception.localCategories}
-            garmentOverlay={garmentPerception.localOverlay}
+            garmentOverlay={showGarmentOverlays ? garmentPerception.localOverlay : null}
           />
           <div className="versus-mark"><span>V</span><span>S</span></div>
           <PlayerCard
@@ -172,7 +176,7 @@ export function BattleRoom({
                       : "WAITING FOR OPPONENT"
             }
             garmentCategories={garmentPerception.remoteCategories}
-            garmentOverlay={garmentPerception.remoteOverlay}
+            garmentOverlay={showGarmentOverlays ? garmentPerception.remoteOverlay : null}
           />
         </div>
 

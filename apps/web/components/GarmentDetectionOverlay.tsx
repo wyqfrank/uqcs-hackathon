@@ -44,7 +44,7 @@ export function GarmentDetectionOverlay({
               x={x + 5}
               y={Math.max(22, y + 22)}
             >
-              {GARMENT_LABELS[detection.category]} {Math.round(detection.confidence * 100)}
+              {GARMENT_LABELS[detection.category]}
             </text>
           </g>
         );
