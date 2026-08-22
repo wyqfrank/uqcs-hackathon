@@ -30,3 +30,6 @@ wandb/
 
 # Leaderboard store (per-machine game records)
 .data/
+# Labelling station: image pool and collected decisions are local data
+apps/web/public/label-pool/
+data/labelling/
