@@ -53,6 +53,23 @@ the later learned scorer. The learned pairwise head is not wired into the image
 endpoint until real expert outputs are available. See `docs/specs/scoring-spec.md`
 for the training and evaluation checklist.
 
+## Confirming final VLM calls
+
+Watch the web/server terminal during finalisation. It emits payload-free events:
+
+```text
+[scoring] VLM request started
+[scoring] VLM request completed
+```
+
+The metadata includes battle, finalisation, pair and sample-count identity plus
+the returned phase, model version and latency. The inference terminal also logs
+the corresponding `POST /v1/compare` HTTP status. If the web terminal instead
+shows `[scoring] final capture unavailable`, no VLM request was made; its slot
+metadata identifies whether Player A or B returned a frame, reported unavailable,
+or missed the response deadline. These diagnostics never include image bytes or
+appearance descriptions.
+
 The real-provider smoke test is deliberately excluded from the default suite. To
 run it with two consented JPEG/WebP outfit images, set `FITTED_RUN_GEMINI_SMOKE=1`,
 `FITTED_SMOKE_PLAYER_A_PATH`, and `FITTED_SMOKE_PLAYER_B_PATH` alongside the

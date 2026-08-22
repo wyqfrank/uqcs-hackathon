@@ -61,7 +61,8 @@ This checklist is the high-level source of truth for specification and implement
 - [ ] A frozen visual-encoder baseline is implemented and evaluated.
 - [ ] A pairwise scoring head is implemented and evaluated.
 - [x] During the countdown, both clients display the same bounded, seeded demo
-      scores labelled `LIVE ESTIMATE`; these values never determine the winner.
+      scores labelled `LIVE ESTIMATE`, updated every 500 ms; these values never
+      determine the winner.
 - [ ] The live battle displays calibrated provisional score ranges from the
       learned fast scoring path.
 - [x] Battle finalisation runs the configured VLM path, broadcasts exact scores
@@ -234,7 +235,7 @@ accurate final result. They must be visually and semantically distinct.
 
 During the hackathon demo, each player sees a one-decimal point value persistently
 labelled **Live estimate**. It is a seeded, deterministic presentation value in
-the `55..85` range, shared across both clients and updated every three seconds.
+the `55..85` range, shared across both clients and updated every 500 ms.
 It is not model output, does not declare a winner, and is replaced rather than
 blended when the authoritative final result arrives.
 
@@ -882,7 +883,7 @@ Only record choices here once the team has agreed to them.
 | Live video               | WebRTC                                                                   | Current prototype choice   | Reassess only if it blocks a reliable demo                                                                                                       |
 | Signalling               | Socket.IO                                                                | Current prototype choice   | Used for rooms and WebRTC negotiation                                                                                                            |
 | Result format            | Labelled demo live estimates, then exact final scores and a winner or draw | Decided for hackathon | The bounded seeded estimate is presentation-only; only server finalisation can lock the verdict |
-| Live estimate            | Shared seeded values in `55..85`, updated every three seconds            | Implemented for demo       | Replace with calibrated learned ranges later; never use the demo value to determine the final winner |
+| Live estimate            | Shared seeded values in `55..85`, updated every 500 ms                   | Implemented for demo       | Replace with calibrated learned ranges later; never use the demo value to determine the final winner |
 | Round lifecycle          | Start one server-owned 30-second round when both players are score-ready; either player may finalise early | Implemented for hackathon | Clients derive the display deadline from server timestamps and never independently finalise at zero |
 | Live-to-final continuity | Calibrate the live band against the final scorer                         | Decided for hackathon      | Start at ±5 points, target 80% coverage, widen to at most 16 total points, then fall back to qualitative live status rather than false precision |
 | ML target                | Preference of the defined FITTED target audience                         | Current direction          | Social popularity supplies weak supervision; audience judgements calibrate the target                                                            |

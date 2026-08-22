@@ -20,7 +20,7 @@ remain unsettled.
 - [x] The phase-aware final/not-scoreable response contract is implemented and
   tested.
 - [x] A shared `55..85` demo estimate is displayed and explicitly labelled
-  `LIVE ESTIMATE`; it is deterministic per round/time slice and final scoring
+  `LIVE ESTIMATE`; it is deterministic per round/500 ms slice and final scoring
   never consumes it.
 - [ ] The learned provisional live-range UI is implemented and tested.
 - [x] Finalisation locks an exact server-authoritative result in the coordinator
@@ -336,6 +336,12 @@ so results from different configurations can be distinguished during evaluation.
 - Late response: discard it when its pair/sample ID is no longer current.
 - Logging: record request ID, model/prompt versions, status, latency, and token
   usage, but no image bytes, base64, or full appearance description.
+
+The implemented Node diagnostics distinguish `[scoring] final capture
+unavailable` from `[scoring] VLM request started`, `completed`, `rejected`, and
+`failed`. This makes it possible to tell from the server terminal whether a
+failure occurred before `/v1/compare` or during provider inference without
+logging image payloads or appearance descriptions.
 
 ### Configuration and ownership
 

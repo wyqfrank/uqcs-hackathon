@@ -191,13 +191,15 @@ export function useBattleScoring(
       const localDeadline = performance.now() + Math.max(0, event.endsAt - event.serverNow);
       const updateCountdown = () => {
         if (!active) return;
-        const secondsRemaining = countdownSeconds(localDeadline, performance.now());
+        const now = performance.now();
+        const remainingSeconds = Math.max(0, localDeadline - now) / 1000;
+        const secondsRemaining = countdownSeconds(localDeadline, now);
         setState({
           phase: "countdown",
           roundId: event.roundId,
           secondsRemaining,
         });
-        setProvisionalScores(provisionalScoresForRound(event.roundId, secondsRemaining));
+        setProvisionalScores(provisionalScoresForRound(event.roundId, remainingSeconds));
       };
       updateCountdown();
       countdownTimerRef.current = setInterval(updateCountdown, COUNTDOWN_TICK_MS);

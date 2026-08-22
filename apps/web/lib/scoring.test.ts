@@ -53,9 +53,9 @@ describe("authoritative score presentation", () => {
     expect(first.playerB).toBeLessThanOrEqual(85);
   });
 
-  it("holds a live estimate for three-second slices before updating", () => {
-    expect(provisionalScoresForRound("round-1", 29)).toEqual(
-      provisionalScoresForRound("round-1", 28),
+  it("updates the live estimate every half-second", () => {
+    expect(provisionalScoresForRound("round-1", 29.75)).not.toEqual(
+      provisionalScoresForRound("round-1", 29.25),
     );
   });
 });

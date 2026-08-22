@@ -94,6 +94,11 @@ function seededUnit(value: string): number {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
   return (hash >>> 0) / 0xffffffff;
 }
 
@@ -101,7 +106,7 @@ export function provisionalScoresForRound(
   roundId: string,
   secondsRemaining: number,
 ): ProvisionalScorePair {
-  const timeSlice = Math.floor(Math.max(0, secondsRemaining) / 3);
+  const timeSlice = Math.floor(Math.max(0, secondsRemaining) * 2);
   const score = (role: "player_a" | "player_b") => {
     const base = 62 + seededUnit(`${roundId}:${role}:base`) * 16;
     const movement = (seededUnit(`${roundId}:${role}:${timeSlice}`) - 0.5) * 6;

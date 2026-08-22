@@ -24,10 +24,17 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function setup(fetchImpl, options = {}) {
   const io = new FakeIo();
+  const diagnostics = [];
+  const logger = {
+    info: (...values) => diagnostics.push({ level: "info", values }),
+    warn: (...values) => diagnostics.push({ level: "warn", values }),
+    error: (...values) => diagnostics.push({ level: "error", values }),
+  };
   let id = 0;
   const coordinator = new ScoringCoordinator({
     io,
     inferenceUrl: "http://inference.test",
+    logger,
     fetchImpl,
     createId: () => `id-${++id}`,
     roundDurationMs: options.roundDurationMs ?? 1000,
@@ -43,7 +50,7 @@ function setup(fetchImpl, options = {}) {
   coordinator.attachSocket(guest);
   coordinator.assignPlayer(host, "FIT-1234", "host");
   coordinator.assignPlayer(guest, "FIT-1234", "guest");
-  return { coordinator, io, host, guest };
+  return { coordinator, diagnostics, io, host, guest };
 }
 
 function ready(coordinator, socket, value = true) {
@@ -241,7 +248,7 @@ test("disconnect cancels a round and reconnect readiness starts a new one", () =
 
 test("three requested slots produce one ordered inference request", async () => {
   const requests = [];
-  const { coordinator, io, host, guest } = setup(async (_url, options) => {
+  const { coordinator, diagnostics, io, host, guest } = setup(async (_url, options) => {
     requests.push(options.body);
     return { ok: true, json: async () => resultFromForm(options.body) };
   }, { burstOffsetsMs: [0, 5, 10], burstSlotTimeoutMs: 100, collectionTimeoutMs: 150 });
@@ -264,6 +271,8 @@ test("three requested slots produce one ordered inference request", async () => 
   assert.deepEqual(requests[0].getAll("player_a_sample_id"), ["host-0", "host-1", "host-2"]);
   assert.deepEqual(requests[0].getAll("player_b_sample_id"), ["guest-0", "guest-1", "guest-2"]);
   assert.equal(coordinator.rooms.get("FIT-1234").phase, "final");
+  assert.equal(diagnostics.some(({ values }) => values[0] === "[scoring] VLM request started"), true);
+  assert.equal(diagnostics.some(({ values }) => values[0] === "[scoring] VLM request completed"), true);
 });
 
 test("the newest submission replaces an earlier frame in the same slot", async () => {

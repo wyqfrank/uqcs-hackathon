@@ -47,6 +47,7 @@ export class ScoringCoordinator {
     io,
     inferenceUrl,
     leaderboard = null,
+    logger = console,
     fetchImpl = fetch,
     now = Date.now,
     createId = randomUUID,
@@ -63,6 +64,7 @@ export class ScoringCoordinator {
     this.io = io;
     this.inferenceUrl = inferenceUrl.replace(/\/$/, "");
     this.leaderboard = leaderboard;
+    this.logger = logger;
     this.fetchImpl = fetchImpl;
     this.now = now;
     this.createId = createId;
@@ -154,7 +156,7 @@ export class ScoringCoordinator {
     if (!players.length) return;
     Promise.resolve(this.leaderboard.recordBattle(players)).catch((error) => {
       // A leaderboard write must never take the battle down with it.
-      console.error("Could not record battle standings:", error?.message ?? error);
+      this.logger.error?.("Could not record battle standings:", error?.message ?? error);
     });
   }
 
@@ -657,6 +659,15 @@ export class ScoringCoordinator {
         playerB: slot.frames.player_b,
       }));
     if (!completePairs.length) {
+      this.logger.warn?.("[scoring] final capture unavailable", {
+        battleId: roomId,
+        finalisationId: state.finalisationId,
+        slots: state.slots.map((slot) => ({
+          burstIndex: slot.burstIndex,
+          playerA: slot.responses.player_a,
+          playerB: slot.responses.player_b,
+        })),
+      });
       this.failRoom(
         roomId,
         state,
@@ -722,6 +733,13 @@ export class ScoringCoordinator {
     state.abortController = abortController;
     const timeout = setTimeout(() => abortController.abort(), this.inferenceTimeoutMs);
     timeout.unref?.();
+    const requestStartedAt = this.now();
+    this.logger.info?.("[scoring] VLM request started", {
+      battleId: roomId,
+      finalisationId: state.finalisationId,
+      pairId: state.pairId,
+      sampleCount: completePairs.length,
+    });
     try {
       const response = await this.fetchImpl(`${this.inferenceUrl}/v1/compare`, {
         method: "POST",
@@ -729,6 +747,13 @@ export class ScoringCoordinator {
         signal: abortController.signal,
       });
       if (!response.ok) {
+        this.logger.warn?.("[scoring] VLM request rejected", {
+          battleId: roomId,
+          finalisationId: state.finalisationId,
+          pairId: state.pairId,
+          status: response.status,
+          elapsedMs: this.now() - requestStartedAt,
+        });
         const detail = await response.json().catch(() => ({}));
         const message = typeof detail.detail === "string" ? detail.detail : "Final scoring is unavailable.";
         const reason = response.status === 504 ? "provider_timeout" : response.status === 503 ? "provider_unavailable" : "invalid_request";
@@ -758,12 +783,28 @@ export class ScoringCoordinator {
       state.result = result;
       state.phase = result.phase === "final" ? "final" : "failed";
       state.abortController = null;
+      this.logger.info?.("[scoring] VLM request completed", {
+        battleId: roomId,
+        finalisationId: state.finalisationId,
+        pairId: state.pairId,
+        phase: result.phase,
+        modelVersion: result.modelVersion ?? null,
+        providerLatencyMs: result.latencyMs ?? null,
+        elapsedMs: this.now() - requestStartedAt,
+      });
       this.io.to(roomId).emit("score-result", result);
       if (state.phase === "final") this.recordStandings(roomId, result);
       if (state.phase === "failed") this.startPerception(roomId);
     } catch (error) {
       if (this.rooms.get(roomId) !== state) return;
       const timedOut = error?.name === "AbortError";
+      this.logger.warn?.("[scoring] VLM request failed", {
+        battleId: roomId,
+        finalisationId: state.finalisationId,
+        pairId: state.pairId,
+        failure: timedOut ? "timeout" : "provider_unavailable",
+        elapsedMs: this.now() - requestStartedAt,
+      });
       this.failRoom(
         roomId,
         state,
