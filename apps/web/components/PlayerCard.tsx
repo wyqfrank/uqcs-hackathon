@@ -6,9 +6,13 @@ import { FittedScore } from "./FittedScore";
 import { GarmentCategoryChips } from "./GarmentCategoryChips";
 import { OutfitDetectionOverlay } from "./OutfitDetectionOverlay";
 
+/** Cabinet side: P1 runs magenta and mirrors right, P2 runs acid green and mirrors left. */
+export type PlayerSide = "p1" | "p2";
+
 export function PlayerCard({
   label,
   number,
+  side,
   stream,
   videoRef,
   muted,
@@ -20,6 +24,7 @@ export function PlayerCard({
 }: {
   label: string;
   number: string;
+  side: PlayerSide;
   stream: MediaStream | null;
   videoRef: RefObject<HTMLVideoElement | null>;
   muted: boolean;
@@ -37,7 +42,7 @@ export function PlayerCard({
   }, [stream, videoRef]);
 
   return (
-    <article className={`player-card ${stream ? "has-stream" : ""}`}>
+    <article className={`player-card is-${side} ${stream ? "has-stream" : ""}`}>
       <header>
         <div><span className="player-number">{number}</span><b>{label}</b></div>
         <span className={`analysis-label ${analysing ? "is-on" : ""}`}><i /> {analysing ? "ANALYSING FIT" : "AWAITING FEED"}</span>
@@ -60,7 +65,7 @@ export function PlayerCard({
         )}
         <div className="corner corner-tl" /><div className="corner corner-tr" />
         <div className="corner corner-bl" /><div className="corner corner-br" />
-        <FittedScore score={score} active={analysing} />
+        <FittedScore score={score} active={analysing} side={side} />
         <GarmentCategoryChips categories={garmentCategories} />
       </div>
     </article>
