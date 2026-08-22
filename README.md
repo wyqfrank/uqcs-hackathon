@@ -133,7 +133,8 @@ one phone hotspot is the most reliable fallback.
 - `apps/web/hooks/useCamera.ts` owns local camera lifecycle.
 - `apps/web/hooks/useWebRTC.ts` owns signalling, the peer connection, camera-track
   replacement, and the remote stream.
-- `apps/web/lib/iceStats.ts` reports gathered candidates and the active WebRTC route.
+- `apps/web/lib/iceStats.ts` reports gathered candidates and polls the successful
+  candidate pair to distinguish direct, NAT-traversed, and relayed routes.
 - `apps/web/lib/rtcConfig.ts` resolves STUN and TURN configuration.
 - `apps/web/lib/scoring.ts` defines the authoritative final-result client contract.
 - `apps/web/server.mjs` pairs one local crop from each player and invokes inference

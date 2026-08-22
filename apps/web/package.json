@@ -10,7 +10,7 @@
     "test:unit": "vitest run --exclude scripts/**",
     "test:signaling": "node scripts/signaling-smoke.mjs",
     "test:scoring-coordinator": "node --test scripts/scoring-coordinator.test.mjs",
-    "test:turn": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/turn-check.mjs",
+    "test:turn": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --env-file-if-exists=../../.env scripts/turn-check.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
