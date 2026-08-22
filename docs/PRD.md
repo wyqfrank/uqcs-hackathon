@@ -26,7 +26,13 @@ This checklist is the high-level source of truth for specification and implement
 - [x] Core two-player product flow is defined.
 - [x] Current landing and battle-room UI direction is documented.
 - [x] Social weak supervision plus target-audience A/B calibration is documented as the current ML direction.
-- [ ] Target audience is defined precisely enough to recruit representative judges.
+- [x] Target audience is defined for the hackathon: FITTED targets **one
+      coherent taste cohort**, not a general population. The shipped model is
+      trained and evaluated on the AC+DP cohort (`--raters AC,DP`); FW's
+      decisions are retained as evidence of a second, uncorrelated cohort and
+      are excluded from training and evaluation.
+- [ ] The cohort is defined by a stated recruiting criterion rather than by
+      observed agreement. See the caveat in § Cohort selection.
 - [x] Initial CV detection specification is documented in [`docs/specs/cv-detection.md`](specs/cv-detection.md).
 - [x] Provisional live-score ranges and authoritative final-score behaviour are documented in [`docs/specs/scoring-spec.md`](specs/scoring-spec.md).
 - [ ] CV detection, frame-quality, and canonical-cropping specification is finalised and validated.
@@ -58,8 +64,24 @@ This checklist is the high-level source of truth for specification and implement
       overlays are implemented and covered by automated tests.
 - [ ] RF-DETR-Seg meets the live latency and correctness gate on representative webcam crops from the intended demo hardware.
 - [ ] Passing garment perception updates the live battle at approximately 1 FPS with one inference operation in flight and no queued frames.
-- [ ] A frozen visual-encoder baseline is implemented and evaluated.
-- [ ] A pairwise scoring head is implemented and evaluated.
+- [x] A frozen visual-encoder baseline is implemented and evaluated.
+- [x] A pairwise scoring head is implemented and evaluated.
+- [x] The pairwise ranker beats chance on its target cohort: 0.643, 95% CI
+      [0.561, 0.717], n=140, lower bound clear of 0.5. It does **not** beat
+      chance on pooled three-rater labels (0.553, CI [0.485, 0.619]), which is
+      why the cohort is defined rather than pooled.
+- [x] A VLM-distillation teacher pipeline and a proximal fine-tuning path are
+      implemented, replacing the descoped social weak supervision.
+- [x] Teacher preferences are collected over the Fashion144k image pool
+      (1,972 usable pairs).
+- [x] Human inter-rater agreement is measured, establishing the model's ceiling
+      (0.686 pooled, 0.778 for the agreeing pair).
+- [ ] **Out of scope — measured and rejected as the goal.** Distillation does
+      not measurably improve held-out agreement: 0.643 versus 0.636 human-only
+      on the same 140 test pairs. Its demonstrated value is label independence
+      (zero-shot 0.709 against human-trained 0.715), not accuracy.
+- [ ] The live battle displays the distilled student's estimate instead of the
+      seeded demo scores.
 - [x] During the countdown, both clients display the same bounded, seeded demo
       scores labelled `LIVE ESTIMATE`, updated every 500 ms; these values never
       determine the winner.
@@ -349,6 +371,177 @@ The first frozen-encoder experiment should benchmark **DINOv2 Small** and **SigL
 **FashionCLIP** should be benchmarked as a second candidate, not assumed to be better. It is fashion-specific, but its published training domain is primarily isolated product imagery rather than webcam images of people wearing complete outfits.
 
 The encoder remains frozen for the first implementation. Full fine-tuning should only be considered if the source experts and scoring head cannot learn a useful signal from frozen embeddings.
+
+#### Measured baseline — DINOv2 Small, 2026-08-22
+
+`services/inference/scripts/train_ranker.py` embeds the labelling pool with a
+frozen DINOv2 Small, reduces to 16 PCA dimensions fitted on training images
+only, and fits a linear pairwise ranker with no intercept, so swap consistency
+holds by construction rather than by measurement.
+
+Trained on 593 usable decisions from **one rater** across 182 images
+(418 train / 95 val / 80 test pairs):
+
+| Split | Agreement | n decided |
+|---|---|---|
+| Validation (model selection) | 0.791 | 86 |
+| **Held-out test** | **0.622**, 95% CI [0.508, 0.724] | 74 |
+
+**The result is positive but weak.** The interval's lower bound sits barely
+above chance, so the honest claim is "better than a coin flip", not a usable
+margin. The validation-to-test drop reflects selection optimism: the sweep chose
+a configuration against 86 validation pairs.
+
+Two constraints, not two bugs. A single rater means no inter-rater ceiling
+exists to compare against, and 74 decided test pairs cannot resolve differences
+smaller than roughly ten points. Both are addressed by the additional raters
+rather than by a larger model — at 182 images, 16 dimensions was already the
+plateau, and 64 dimensions overfit.
+
+Do not re-read the test split to choose between encoders. The DINOv2 versus
+SigLIP 2 comparison should run on validation once the additional raters have
+widened both evaluation splits.
+
+#### VLM distillation — replacing the descoped weak supervision
+
+The descoped Instagram and Depop experts leave the frozen encoder with no
+large-scale supervision, and 593 human decisions cannot fill that gap. The
+replacement teacher is the **VLM assessor already used at finalisation**:
+`distil_teacher.py` runs the production `GeminiVlmProvider` and the live rubric
+prompt over pairs from an unlabelled image pool, and `train_ranker.py --teacher`
+pretrains the pairwise head on those judgements before fine-tuning it on the
+human pairs.
+
+This targets the correct objective. The student is trained to predict the
+verdict that actually settles a battle, so the live estimate becomes a fast
+approximation of the final result rather than an unrelated second opinion. The
+VLM is far too slow for a 1 FPS live path; a linear head over one 71 ms DINOv2
+forward is not.
+
+Fine-tuning uses a proximal penalty toward the teacher's weights rather than
+toward zero, so a few hundred human pairs calibrate the teacher instead of
+overwriting it.
+
+The reported diagnostic is the student's accuracy on human validation pairs
+*before* any human label is applied. That isolates what distillation contributed
+from what the human pairs contributed.
+
+##### Image source and its licence
+
+The teacher pool is sampled from **Fashion144k** (Simo-Serra et al., CVPR 2015),
+streamed from the distributed archive and re-encoded to WebP. Its
+`relvotes.mat` fashionability scores are **deliberately discarded**: they carry
+the photo-quality, fan-count and posting-era confounds that the descoped
+residual experts existed to remove. Only the pixels are used.
+
+**Licence constraint — the dataset is non-commercial.** The archive's terms
+restrict use to "non-commercial research and educational purposes". A hackathon
+prototype qualifies. A commercial FITTED would not, and neither would a shipped
+model distilled from these images. If the product is ever commercialised, the
+teacher pool must be rebuilt from a differently licensed image source and the
+student retrained. Cite the CVPR 2015 paper wherever the dataset is credited.
+
+Known domain gap: Fashion144k photos are 378×256 street-style shots, well lit
+and full-body. Live input is a 640 px webcam crop under venue lighting. Matching
+the codec closes part of that gap; resolution, lighting and pose remain
+unmatched. A near-chance zero-shot number should be read as a domain-gap
+symptom before it is read as a teacher-quality problem.
+
+#### Measured results — 1,972 teacher pairs, three raters, 2026-08-22
+
+Human labels: 1,252 usable decisions from three raters (AC 486, DP 593, FW 173)
+over 182 images. Teacher labels: 1,972 Gemini pairs (19 unusable, 9 failed).
+All configurations scored against one frozen label snapshot; comparing across a
+live directory is invalid, because raters keep labelling and the evaluation
+splits grow between runs.
+
+| Configuration | Val (pooled) | Val (AC+DP) |
+|---|---|---|
+| Human labels only | 0.638 | 0.715 |
+| Teacher zero-shot, **no human labels** | 0.621 | 0.709 |
+| Teacher + proximal fine-tune | 0.660 | 0.734 |
+| **Human inter-rater ceiling** | **0.686** | **0.778** |
+
+Held-out test, frozen configuration (16 dims, train-pool basis):
+
+| Label set | Test | 95% CI | n |
+|---|---|---|---|
+| Pooled, three raters | 0.553 | [0.485, 0.619] | 208 |
+| AC+DP subgroup | 0.643 | [0.561, 0.717] | 140 |
+
+Four conclusions, in order of importance:
+
+1. **Rater agreement, not model capacity, is the binding constraint.** The model
+   lands within roughly 4 points of the human ceiling on both label sets. There
+   is very little headroom left for a better model to capture.
+2. **The raters do not share a preference.** AC and DP agree 0.778; FW agrees
+   with them 0.491 and 0.563 — the first is exactly chance. This is not
+   carelessness: FW's median decision took 4.9 s, the slowest of the three.
+   Their taste is simply uncorrelated with the other two.
+3. **On a mixed audience the ranker does not beat chance.** The pooled test
+   interval [0.485, 0.619] contains 0.5. On the coherent subgroup it clearly
+   does: [0.561, 0.717]. FITTED's premise requires an audience that shares a
+   notion of a better outfit, and three people were not enough to form one.
+4. **Distillation replaces human labels almost entirely.** Zero-shot, with no
+   human label at all, the student scores 0.709 against AC+DP's 0.715 from 761
+   human training pairs. Fine-tuning adds about 2 points — within noise on these
+   sample sizes, so treat the gain as directional. The value delivered is the
+   near-elimination of the labelling requirement, not the 2 points.
+
+Fitting the PCA basis on Fashion144k images rather than the label pool was worse
+in every configuration (0.613 versus 0.660 pooled). The teacher's *judgements*
+transfer across the domain gap; its *image statistics* do not. Use
+`--projection train`.
+
+Earlier single-rater figures (val 0.791, test 0.622) are superseded. That
+validation set held 86 decided pairs from one person and was both small and
+self-consistent; the three-rater numbers are lower and more trustworthy.
+
+#### Cohort selection, and the caveat it carries
+
+FITTED is an entertainment-oriented preference signal, not an objective measure,
+so predicting *one* audience well is the correct product goal. The shipped
+configuration is therefore:
+
+```bash
+python services/inference/scripts/train_ranker.py \
+  --dims 16 --raters AC,DP --projection train \
+  --teacher data/labelling/teacher.jsonl --report-test
+```
+
+Held out on that cohort, against a 0.778 cohort ceiling:
+
+| Model | Test | 95% CI |
+|---|---|---|
+| Human labels only (761 pairs) | 0.636 | [0.553, 0.711] |
+| Distilled + fine-tuned | 0.643 | [0.561, 0.717] |
+
+**Distillation does not buy accuracy.** Seven tenths of a point on 140 pairs is
+nothing. What it buys is independence from the labelling effort: the zero-shot
+student, having seen no human label at all, scores 0.709 on validation against
+the human-trained model's 0.715. Retargeting FITTED at a different cohort
+therefore does not require another 600-decision labelling session — the teacher
+supplies almost the entire signal, and human pairs are needed only to confirm
+the cohort's taste is being tracked.
+
+That is the result worth reporting: not a better ranker, a ranker that no longer
+depends on collecting human preference data first.
+
+**The caveat, stated plainly:** the cohort was chosen *because* its members
+agreed, after seeing the agreement matrix. With three raters, "the two who
+agree" is a post-hoc selection, and some of that agreement could be chance. The
+0.643 is a genuine held-out number — no test label influenced training — but the
+decision about whose taste counts was informed by the data.
+
+The honest version of this claim is "FITTED predicts the AC+DP cohort's
+preference", not "FITTED predicts good taste". To make the stronger claim, the
+cohort must be defined by a recruiting criterion stated in advance (demographic,
+subculture, self-reported style) and new judges recruited against it, rather
+than by filtering raters on observed agreement.
+
+FW's 173 decisions are kept in the repository. They are not noise — FW's median
+decision took 4.9 s, the slowest of the three raters — and they are the evidence
+that a second, uncorrelated cohort exists.
 
 ### Outfit composition and body-aware fit
 
