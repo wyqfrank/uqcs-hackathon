@@ -513,7 +513,8 @@ React state/context is preferred initially.
 
 ## 19. File Organisation
 
-Prefer:
+The frontend is rooted at `apps/web/`. Paths in the following frontend layout are
+relative to that directory. Prefer:
 
 ```text
 app/
@@ -544,6 +545,10 @@ lib/
   scoring.ts
   utils.ts
 ```
+
+The Python API is rooted at `services/inference/` and uses an installable `src/`
+package. Keep online inference and API code there. Do not place notebooks, datasets,
+checkpoints, or training-only dependencies in the deployable service package.
 
 Do not put unrelated components into a giant generic `components` folder when a clear feature grouping exists.
 
@@ -678,6 +683,9 @@ Use its task-list checkboxes consistently:
 - A proposal, design discussion, or written specification is not implemented work.
 - Do not check an implementation item merely because code exists; verify the behaviour described by the item.
 - When a change completes or invalidates a tracked item, update the relevant PRD checkbox in the same change.
+- When work is tracked in a focused Markdown file under `docs/specs/`, mark the respective task checkbox in that file in the same change.
+- If the same outcome is tracked in both the PRD and a focused specification, update both checkboxes; do not leave their completion states inconsistent.
+- Add new implementation or verification work as a Markdown task (`- [ ]`) in the most relevant tracking document, then change it to `- [x]` only after the exact outcome is complete and verified.
 - If an item is removed from scope, remove it or mark it explicitly as out of scope instead of checking it.
 - Preserve separate specification, implementation, and verification statuses when they do not complete at the same time.
 

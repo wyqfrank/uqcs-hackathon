@@ -3,4 +3,22 @@ node_modules/
 *.log
 *.tsbuildinfo
 .env*
+!.env.example
+!**/.env.example
 certificates/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.egg-info/
+dist/
+
+# ML data and generated model artifacts
+data/
+models/
+artifacts/
+checkpoints/
+wandb/

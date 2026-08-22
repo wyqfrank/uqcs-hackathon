@@ -1,59 +1,102 @@
 # FITTED — live fashion battle
 
-A two-player, webcam-first fashion battle built with Next.js, React, TypeScript, WebRTC, Socket.IO, and Tailwind CSS. Socket.IO carries signalling messages only; both video feeds travel directly between the two browsers over WebRTC.
+FITTED is a two-player, webcam-first fashion battle. The repository is a small
+monorepo with an independently deployable web application and Python inference
+service.
+
+```text
+apps/web/                    Next.js UI, Socket.IO signalling, WebRTC
+services/inference/          FastAPI service and online ML boundary
+docs/                        Product requirements and focused specifications
+scripts/                     Repository-wide developer tooling
+```
+
+The browser-to-browser video remains peer-to-peer over WebRTC. Socket.IO carries
+room and signalling messages only. The Python service receives sampled image pairs
+for scoring; it never sits in the live video path.
+
+## Prerequisites
+
+- Node.js 22 or newer
+- Python 3.11 or newer
+
+## Set up
+
+From the repository root:
+
+```powershell
+npm run setup
+```
+
+This installs the npm workspace and the Python service with its development tools.
+Large ML libraries are intentionally optional. Install them only when working on
+the model implementation:
+
+```powershell
+.venv\Scripts\python -m pip install -e "services/inference[dev,ml]"
+```
 
 ## Run locally
 
 ```powershell
-npm install
 npm run dev
 ```
 
-Open `http://localhost:3000` on the host laptop. `localhost` is a secure-context exception in modern browsers, so its webcam will work during local development.
+This starts:
 
-## Run on two laptops (recommended)
+- web and signalling server: `http://localhost:3000`
+- inference API: `http://localhost:8000`
+- inference OpenAPI docs: `http://localhost:8000/docs`
 
-Camera access requires HTTPS when the page is opened from another device. An address such as `http://192.168.1.20:3000` is **not** considered secure and the second laptop's browser will block `getUserMedia()`.
+Run either process independently with `npm run dev:web` or `npm run dev:api`.
+The inference scaffold reports healthy but deliberately returns `503` for
+comparisons until an evaluated model is connected.
 
-The fastest hackathon setup is an HTTPS tunnel:
+## Useful commands
 
-1. On Laptop A, run `npm run dev`.
-2. Install [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/), then run:
+```powershell
+npm run typecheck       # TypeScript
+npm run test            # frontend and backend tests
+npm run lint:api        # Python lint
+npm run build           # production Next.js build
+npm run check           # all of the above
+```
 
-   ```powershell
-   cloudflared tunnel --url http://localhost:3000
-   ```
+## Run on two laptops
 
-3. Open the generated `https://...trycloudflare.com` URL on both laptops.
-4. Laptop A clicks **Create Battle**, allows camera access, and sends the displayed `FIT-####` code to Laptop B.
-5. Laptop B clicks **Join Battle**, enters the code, and allows camera access.
+Camera access requires HTTPS when the site is opened from another device. An address
+such as `http://192.168.1.20:3000` is not a secure context, so the second browser will
+block camera access.
 
-For a LAN-only HTTPS setup, create a certificate containing Laptop A's LAN IP with `mkcert`, trust the generated local CA on both laptops, and start the app with the certificate paths:
+For a hackathon demo, start the app on Laptop A and expose it through an HTTPS tunnel:
+
+```powershell
+npm run dev
+cloudflared tunnel --url http://localhost:3000
+```
+
+Open the generated `https://...trycloudflare.com` URL on both laptops. For LAN-only
+HTTPS, provide trusted certificate paths before starting the app:
 
 ```powershell
 $env:SSL_KEY_PATH="C:\path\to\192.168.1.20-key.pem"
 $env:SSL_CERT_PATH="C:\path\to\192.168.1.20.pem"
-npm run dev
+npm run dev:web
 ```
 
-Then both users open `https://192.168.1.20:3000`. Allow inbound TCP port 3000 in Laptop A's firewall if prompted. Both devices must trust the certificate authority; clicking through a certificate warning is not sufficient for dependable camera access.
+Both devices must trust the certificate authority. Allow inbound TCP port 3000 in
+Laptop A's firewall if prompted.
 
-## How it works
+## Architecture notes
 
-- **Room flow:** The creator generates a short `FIT-####` ID in the browser. The signalling server admits one host and one guest, rejects missing/full rooms, and notifies the host when the challenger arrives.
-- **WebRTC:** The host creates an SDP offer after `peer-joined`. The guest applies it and returns an SDP answer. Both sides exchange ICE candidates through Socket.IO. The server never receives media.
-- **Streams:** `useCamera` owns one local `MediaStream`, handles permission/error states, and safely stops tracks on exit. `useWebRTC` owns the `RTCPeerConnection`; its `ontrack` callback stores the remote `MediaStream`. `PlayerCard` assigns each stream to its own video element.
-- **Frame extraction:** `captureVideoFrame()` draws either video element into a resized offscreen canvas and returns an encoded WebP `Blob`. Local and remote elements are sampled independently; no inference frame is sent over the signalling channel.
-- **ML integration:** Replace the body of `inferFrame()` in [`lib/scoring.ts`](lib/scoring.ts). Its input and output already match the intended `Blob -> FittedResult` boundary.
-- **Backpressure:** `useInference` runs a 250 ms sampling timer with an `inferenceRunningRef` lock. If a previous call is still running, the tick is skipped—there is no promise queue and therefore no stale-frame backlog. The next available tick captures the newest visible frame.
-- **Smoothing:** Scores use an exponential moving average with `alpha = 0.2`. Winner comparison is isolated in `determineWinner()`, with a two-point draw threshold.
+- `apps/web/server.mjs` hosts Next.js and the Socket.IO signalling server together.
+- `apps/web/hooks/useCamera.ts` owns local camera lifecycle.
+- `apps/web/hooks/useWebRTC.ts` owns the peer connection and remote stream.
+- `apps/web/lib/scoring.ts` is still the replaceable client-side placeholder.
+- `services/inference/src/fitted_inference/engine.py` is the model-loading and paired
+  inference boundary. Models should load once during FastAPI startup.
+- Training datasets, model weights, checkpoints, and experiment output are ignored;
+  store them outside Git or in a dedicated artifact store.
 
-## Production build
-
-```powershell
-npm run typecheck
-npm run build
-npm start
-```
-
-The isolated ICE configuration lives in [`lib/rtcConfig.ts`](lib/rtcConfig.ts). A public STUN server is enough for the intended same-network demo; add TURN credentials there before relying on connections across restrictive NATs or enterprise networks.
+See [docs/PRD.md](docs/PRD.md) for product scope and
+[services/inference/README.md](services/inference/README.md) for the API contract.

@@ -1,9 +1,18 @@
 # CV Detection and Frame Preparation Specification
 
-**Product:** MOG  
+**Product:** FITTED
 **Status:** Draft  
+**Implementation:** Initial browser pipeline implemented; fixture calibration and live-device validation pending
 **Scope:** Live person detection, pose tracking, frame-quality validation, and canonical outfit cropping  
-**Out of scope:** Taste scoring, social-signal training, pairwise ranking, and production deployment
+**Out of scope for this implementation:** Taste scoring, source-expert training, pairwise calibration, VLM serving, and production deployment. Their contracts with detection are documented below.
+
+This document expands the CV requirements in [`docs/PRD.md`](../PRD.md). The PRD remains the source of truth for product scope and high-level delivery status; this checklist tracks the detailed CV work.
+
+Task status uses Markdown checkboxes throughout this specification:
+
+- `[ ]` means incomplete, undecided, blocked, or not yet verified.
+- `[x]` means the exact stated outcome is implemented and verified.
+- Update the relevant checkbox when a change completes or invalidates a tracked outcome.
 
 ## 1. Purpose
 
@@ -67,7 +76,7 @@ MediaPipe provides 33 body landmarks, landmark visibility, and optional person s
 
 ## 5. Client-side architecture
 
-Each browser should analyse its own uncompressed local camera feed. The browser should not wait for a server round trip before showing framing guidance.
+Each browser analyses its own uncompressed local camera feed. The browser does not wait for a server round trip before showing framing guidance. The first implementation targets Chrome and Edge and reports `detector_unavailable` when the required browser APIs are missing.
 
 ```text
 HTMLVideoElement at camera frame rate
@@ -84,10 +93,22 @@ HTMLVideoElement at camera frame rate
                                │
                     temporal state machine
                                │
-                     candidate-frame buffer
+                    candidate-frame buffer
 ```
 
-The final transport of valid crops to the inference service is intentionally left to the inference-service specification. The detection contract must work whether the host coordinates both players or each client submits its own local crop.
+The current PRD direction uses the host browser as the initial inference coordinator. At a rate-limited scoring tick, the host captures one explicit local/remote frame pair and submits it to the separate Python inference service at `/v1/compare`. The service revalidates frame quality and applies the selected canonical preprocessing consistently before scoring. Only one comparison may be in flight; a busy tick is discarded.
+
+```text
+Guest local feed ──► guest framing guidance
+       │
+       └──────── WebRTC remote feed ────────┐
+                                            │
+Host local feed ───► host framing guidance  ├──► paired /v1/compare request
+                                            │
+Host remote video element ──────────────────┘
+```
+
+This is a proposed first transport, not a final architecture decision. It must be tested for asymmetric WebRTC compression and capture quality. If it materially biases comparisons, each player should instead submit its locally selected frame and the service should pair the latest submissions by room. The detection contract must therefore remain usable by both coordinator models.
 
 ## 6. Scheduling and backpressure
 
@@ -142,13 +163,24 @@ type FrameQualityMetrics = {
   motion: number;
 };
 
-type DetectedOutfitFrame = {
+type VisibleRegions = {
+  head: boolean;
+  torso: boolean;
+  legs: boolean;
+  feet: boolean;
+};
+
+type OutfitDetectionResult = {
   capturedAt: number;
-  status: OutfitFrameStatus;
+  observedStatus: OutfitFrameStatus;
+  stableStatus: OutfitFrameStatus;
+  scoreable: boolean;
   personBox: NormalizedRect | null;
   cropBox: NormalizedRect | null;
   landmarks: PoseLandmark[];
+  visibleRegions: VisibleRegions;
   quality: FrameQualityMetrics;
+  processingMs: number;
 };
 ```
 
@@ -171,7 +203,7 @@ The first implementation should evaluate grouped landmarks rather than requiring
 - legs: left/right knees;
 - lower extent: ankles, heels, or foot-index landmarks.
 
-A scoreable full-outfit frame must provide reliable torso and leg evidence plus enough lower-extent evidence to determine that the outfit is not cut off. Exact confidence thresholds remain tunable until evaluated on representative webcam fixtures.
+A scoreable frame must provide reliable head, torso, and knee evidence. Ankles, heels, and foot-index landmarks are optional: missing feet do not invalidate an otherwise usable outfit, but `visibleRegions.feet` must be `false` so the future scorer knows that footwear evidence is unavailable. Exact confidence thresholds remain tunable until evaluated on representative webcam fixtures.
 
 Long dresses, wide trousers, layering, and partial self-occlusion must be included in the fixture set so landmark visibility rules do not systematically reject valid outfits.
 
@@ -182,8 +214,10 @@ Reject or pause scoring when:
 - the detected person occupies too little of the frame;
 - the person fills the frame so tightly that padding cannot be added;
 - the calculated person bounds touch the frame edge;
-- the head, torso, legs, or feet appear cropped;
+- the head, torso, or knees appear cropped;
 - there is insufficient surrounding space for bags, outerwear, or silhouette.
+
+Bottom-edge clipping is permitted when the knees remain usable. It must be recorded as missing foot evidence rather than silently implying that shoes were assessed.
 
 Initial tunable values:
 
@@ -237,7 +271,7 @@ Smoothing must not allow an old crop to lag significantly behind a moving person
 
 ## 10. Canonical crop
 
-The crop must preserve the complete visible outfit and enough context for silhouette, layering, shoes, headwear, and carried accessories.
+The crop must preserve the complete visible outfit evidence and enough context for silhouette, layering, headwear, and carried accessories. Shoes are retained when visible but are not mandatory for a valid crop.
 
 Crop algorithm:
 
@@ -353,84 +387,99 @@ Measured performance must be recorded for both players' intended devices. If tar
 
 ### Unit tests
 
-- Landmark-group visibility classification.
-- Person-box and padded-crop calculations.
-- Bounds clamping and aspect-ratio padding.
-- Temporal hysteresis state transitions.
-- Motion calculation.
-- Candidate expiry and deterministic selection.
-- Resource cleanup and worker error handling where testable.
+- [x] Landmark-group visibility classification.
+- [x] Person-box and padded-crop calculations.
+- [x] Bounds clamping and safe pixel conversion.
+- [ ] Encoder aspect-ratio padding and resize-without-stretching.
+- [x] Temporal hysteresis state transitions.
+- [x] Motion calculation.
+- [x] Candidate expiry and deterministic selection.
+- [x] Expired and overflow candidate-resource cleanup.
+- [ ] Worker error and lifecycle cleanup where testable.
 
 ### Fixture set
 
-Create at least 50–100 representative stills or short sequences covering:
+Create and classify at least 50–100 representative stills or short sequences. Track fixture coverage explicitly:
 
-- correctly framed outfits;
-- person too near and too far;
-- cropped head, torso, legs, and shoes;
-- multiple people;
-- no person;
-- low light and backlighting;
-- motion blur;
-- dark clothing;
-- dresses, skirts, wide-leg trousers, and layered outerwear;
-- bags, hats, and accessories extending beyond the body;
-- front, side, back, and turning poses;
-- varied body shapes, skin tones, mobility, and gender presentation.
+- [ ] Correctly framed outfits.
+- [ ] Person too near and too far.
+- [ ] Cropped head, torso, legs, and shoes.
+- [ ] Multiple people.
+- [ ] No person.
+- [ ] Low light and backlighting.
+- [ ] Motion blur.
+- [ ] Dark clothing.
+- [ ] Dresses, skirts, wide-leg trousers, and layered outerwear.
+- [ ] Bags, hats, and accessories extending beyond the body.
+- [ ] Front, side, back, and turning poses.
+- [ ] Varied body shapes, skin tones, mobility, and gender presentation.
 
 Training, tuning, and evaluation fixtures must be separated where thresholds are learned from the data.
 
 ### Integration tests
 
-- Video remains interactive while the worker runs.
-- No frame queue develops during sustained motion.
-- Detection results retain correct timestamps.
-- A brief miss does not cause UI flicker.
-- A stale result is never sent as a new scoring frame.
-- Camera stop, restart, room leave, and component unmount release detection resources.
+- [ ] Video remains interactive while the worker runs on both intended laptops.
+- [ ] No frame queue develops during sustained motion.
+- [ ] Detection results retain correct timestamps.
+- [ ] A brief miss does not cause UI flicker.
+- [ ] A stale result is never sent as a new scoring frame.
+- [ ] Camera stop, restart, room leave, and component unmount release detection resources.
+- [ ] The host submits one explicit local/remote pair with at most one `/v1/compare` request in flight.
+- [ ] Host-captured remote frames are checked for asymmetric WebRTC quality bias.
 
 ### Acceptance criteria before finalising this spec
 
-- Pose Lite and Pose Full are benchmarked on the intended laptops.
-- Initial thresholds are evaluated on the fixture set.
-- Valid crops retain the complete outfit and accessories at an agreed rate.
-- False acceptance of cropped or multi-person frames is measured.
-- Motion behaviour is tested with walking, turning, and a controlled spin.
-- The selected preprocessing variant is evaluated for score stability and person/background bias.
-- Client-versus-host detection ownership is reconciled with the inference-service design.
+- [ ] Pose Lite and Pose Full are benchmarked on the intended laptops.
+- [ ] Initial thresholds are evaluated on the fixture set.
+- [ ] Valid crops retain the complete outfit and accessories at an agreed rate.
+- [ ] False acceptance of cropped or multi-person frames is measured.
+- [ ] Motion behaviour is tested with walking, turning, and a controlled spin.
+- [ ] The selected preprocessing variant is evaluated for score stability and person/background bias.
+- [ ] The host-coordinator transport is validated or replaced with per-client submission based on measured quality.
+- [ ] Detection ownership, pairing, and frame transport are recorded as final decisions in the PRD.
 
 ## 17. Proposed file organisation
 
 ```text
-hooks/
-  useOutfitDetection.ts
+apps/web/
+  hooks/
+    useOutfitDetection.ts
+  lib/
+    cv/
+      candidates.ts
+      config.ts
+      crop.ts
+      frame-quality.ts
+      motion.ts
+      temporal.ts
+      types.ts
+  workers/
+    pose-detection.worker.ts
 
-lib/
-  cv/
-    crop.ts
-    frame-quality.ts
-    motion.ts
-    types.ts
-
-workers/
-  pose-detection.worker.ts
+services/inference/
+  src/fitted_inference/
+    engine.py
+    main.py
+    schemas.py
 ```
 
-Keep pure crop, quality, motion, and state-transition logic outside React and the worker so it can be unit tested directly.
+Keep pure crop, quality, motion, candidate-selection, and state-transition logic outside React and the worker so it can be unit tested directly. Keep model loading, paired-image validation, and comparison response construction inside the installable inference-service package; do not move ML dependencies into `apps/web/`.
 
 ## 18. Implementation sequence
 
 - [ ] Build a still-image MediaPipe spike and debug overlay.
 - [ ] Create and classify the initial fixture set.
-- [ ] Implement landmark visibility and framing checks.
-- [ ] Implement deterministic padded canonical cropping.
+- [x] Implement landmark visibility and framing checks.
+- [x] Implement deterministic padded canonical cropping.
 - [ ] Compare Pose Lite and Pose Full on target hardware.
-- [ ] Move video detection into a Web Worker.
-- [ ] Implement latest-frame scheduling with zero queueing.
-- [ ] Add temporal smoothing and hysteresis.
-- [ ] Add brightness, blur, and motion metrics.
-- [ ] Implement the recent candidate-frame buffer and selector.
-- [ ] Integrate detection status into the battle UI.
+- [x] Move video detection into a Web Worker.
+- [x] Implement latest-frame scheduling with zero queueing.
+- [x] Add temporal smoothing and hysteresis.
+- [x] Add brightness, blur, and motion metrics.
+- [x] Implement the recent candidate-frame buffer and selector.
+- [x] Integrate detection status into the battle UI.
+- [ ] Pad and resize selected crops to the encoder input shape without stretching.
+- [ ] Connect host-coordinated paired capture to the `/v1/compare` service boundary.
 - [ ] Connect selected crops to the visual-encoder baseline.
 - [ ] Test camera restart, disconnect, and cleanup behaviour.
 - [ ] Run face-blur and background-neutralisation ablations.
@@ -438,14 +487,216 @@ Keep pure crop, quality, motion, and state-transition logic outside React and th
 
 ## 19. Open decisions
 
-- Pose Lite versus Pose Full after benchmarking.
-- Final landmark visibility and framing thresholds.
-- Exact brightness, blur, and motion thresholds.
-- Whether full-foot visibility is mandatory or partial outfits can be scored without shoes.
-- Whether face blurring becomes the default preprocessing path.
-- Whether background segmentation improves fairness without removing useful accessories or silhouette.
-- Whether detection runs independently on each local client or the host coordinates both feeds.
-- Minimum browser support and fallback behaviour.
-- Whether garment boxes or masks materially improve target-audience preference accuracy.
+- [ ] Pose Lite versus Pose Full after benchmarking.
+- [ ] Final landmark visibility and framing thresholds.
+- [ ] Exact brightness, blur, and motion thresholds.
+- [ ] Whether face blurring becomes the default preprocessing path.
+- [ ] Whether background segmentation improves fairness without removing useful accessories or silhouette.
+- [ ] Whether garment boxes or masks materially improve target-audience preference accuracy.
+- [ ] Whether host-coordinated capture is sufficiently fair or per-client submission is required.
+
+Decisions locked for the initial implementation:
+
+- detection runs independently on each player's local, uncompressed camera feed;
+- missing feet are allowed when head, torso, and knee evidence is usable;
+- Chrome and Edge are the supported initial browsers;
+- the separate Python service owns online model inference;
+- a paired host request is the first transport to test, while final transport ownership remains open.
+
+## 20. Webcam-like human calibration frames
+
+FITTED needs a small human-labelled calibration set whose visual domain resembles the canonical crops produced by this pipeline. This is pairwise calibration data, not enough data to pretrain or fully fine-tune a visual encoder.
+
+Start with approximately **200–400 unique images** of people wearing complete outfits and collect **500–1,000 individual A/B decisions**. Prefer:
+
+- full-body images with shoes visible;
+- mostly front-facing, neutral poses;
+- one person per image;
+- similar crop and resolution;
+- clear lighting without heavy filters;
+- varied styles, colours, silhouettes, layering and formality;
+- varied people, backgrounds, lighting and body proportions; and
+- faces blurred or excluded.
+
+Do not show likes, prices, brands, captions or popularity cues. Avoid product-only photographs, flat lays, close-ups, heavily obscured outfits and pairs where framing quality determines the answer.
+
+If frames come from video, select the best one to three representatives from a stable interval. Adjacent frames share an `outfitId`, `personId` and `sessionId`; they are not independent outfits.
+
+Construct three pair groups:
+
+1. **Clear contrasts** validate the task and rater instructions.
+2. **Close comparisons** provide high-value preference signal.
+3. **Robustness comparisons** test similar outfits across different people, backgrounds, lighting or cameras.
+
+Randomise left/right placement and include a small number of deliberately swapped duplicate pairs to measure position bias. Each image should appear in several pairings, and the comparison graph should remain connected.
+
+Use this prompt:
+
+> Which outfit is better styled as a complete look? Judge the clothing, coordination and fit—not the person, photo quality or brand.
+
+Offer `A wins`, `B wins`, `Too close` and `Cannot judge`. Treat a draw as a soft `0.5` preference target. Exclude `Cannot judge` from preference training and retain it for frame-quality evaluation.
+
+Optional reason tags may cover individual pieces, coordination, proportion, silhouette, layering and colour. Collect them on a subset of decisions to avoid rater fatigue.
+
+```ts
+type PairwiseLabel = {
+  pairId: string;
+  leftOutfitId: string;
+  rightOutfitId: string;
+  result: "left" | "right" | "draw" | "cannot_judge";
+  reasons?: Array<
+    | "components"
+    | "coordination"
+    | "proportion"
+    | "silhouette"
+    | "layering"
+    | "colour"
+  >;
+  anonymousRaterId: string;
+  responseTimeMs: number;
+};
+```
+
+Split by person, outfit and capture session before constructing pairs. Use an initial 70/15/15 train/validation/test allocation and build pairs only within each split. Never place the same image, adjacent frames, outfit session or—where possible—person/source creator across train and evaluation boundaries. Important validation and test pairs should receive multiple independent ratings so human agreement and the realistic model ceiling can be measured.
+
+## 21. Pre-labelled fashion curriculum
+
+Existing datasets should provide fashion perception and compatibility pretraining so hackathon effort is spent on FITTED-specific calibration:
+
+- [DeepFashion2](https://github.com/switchablenorms/DeepFashion2) provides clothing categories, boxes, dense landmarks, masks, viewpoint and occlusion annotations. Use it for garment localisation and visibility.
+- [Fashionpedia](https://fashionpedia.github.io/home/index.html) provides apparel masks, categories, parts and fine-grained attributes. Use it for fashion-specific segmentation and attribute representation.
+- [Polyvore Outfits](https://github.com/xthan/polyvore-dataset) provides outfit compatibility examples. Use it as optional compatibility pretraining while measuring the product-image-to-webcam domain gap.
+- [Fashionpedia-Taste](https://arxiv.org/abs/2305.02307) provides human preference explanations involving localised attributes, attention and captions. Use it as optional explanation/preference pretraining, not as a replacement for FITTED labels.
+
+Recommended curriculum:
+
+```text
+generic frozen encoder: DINOv2 Small or SigLIP 2 Base
+                         ↓
+fashion perception: DeepFashion2 / Fashionpedia
+                         ↓
+generic compatibility: Polyvore, optional
+                         ↓
+source experts: Instagram and Depop residual targets
+                         ↓
+FITTED calibration: webcam-like human A/B labels
+```
+
+The hackathon should load existing checkpoints or train small heads over cached embeddings. It should not train a detector or foundation encoder from scratch. Verify dataset and platform licences before redistribution or commercial use.
+
+## 22. Detection-to-scoring contract
+
+Detection locates evidence and establishes judgeability; it never directly determines fashion quality.
+
+```ts
+type GarmentCategory =
+  | "top"
+  | "bottoms"
+  | "dress"
+  | "outerwear"
+  | "shoes"
+  | "accessory";
+
+type GarmentDetection = {
+  category: GarmentCategory;
+  box: NormalizedRect;
+  confidence: number;
+  visibleFraction?: number;
+};
+```
+
+Garment boxes support component crops, visibility and UI overlays. Missing optional garments are removed from the score denominator, not assigned a zero. Dresses and one-piece garments must not be penalised for lacking separate tops and bottoms.
+
+Pose landmarks may support body-aware visual-fit features such as shoulder/waist alignment, visible sleeve and trouser length, proportion, layering and silhouette balance. The system must not judge body type, facial appearance, attractiveness or gender presentation. Oversized, fitted and unconventional silhouettes are valid style choices; the target is visible coherence and intentionality.
+
+The scoring representation may combine:
+
+```text
+global complete-outfit embedding
++ pose-relative upper-body crop embedding
++ pose-relative lower-body crop embedding
++ footwear crop embedding when visible
++ pose/proportion features
+```
+
+The global embedding is mandatory because whole-outfit coordination is an interaction between pieces and cannot be recovered reliably by averaging isolated crop scores.
+
+For each outfit, the later scoring service forms a compact feature vector:
+
+```text
+x = [
+  instagram_score,
+  depop_score,
+  component_quality,
+  outfit_coordination,
+  body_fit,
+  vlm_holistic_score
+]
+```
+
+Human pair labels calibrate a regularised pairwise combiner:
+
+```text
+P(A wins) = sigmoid(weights · (x(A) - x(B)) / temperature)
+```
+
+This low-capacity combiner is appropriate for 500–1,000 decisions. Direct unrestricted training on high-dimensional visual embeddings is not.
+
+## 23. VLM and temporal-video boundary
+
+At battle completion, an image-capable VLM may analyse the best synchronised pair or a short three-frame burst. Its structured response should contain component quality, whole-outfit coordination, body-aware fit, frame quality and visible clothing observations.
+
+The VLM prompt must prohibit assessment of faces, attractiveness, body type, perceived gender, brand value and popularity. The VLM is one expert and the explanation layer; it does not overwrite the application-owned deterministic combiner.
+
+Do not run a large VLM on the full webcam frame rate:
+
+```text
+30 FPS WebRTC display
+        |
+        +--> local pose/framing detection at approximately 10 FPS
+        |
+        +--> newest paired scoring sample at approximately 0.5–1 FPS
+                              |
+                       maximum one in flight
+                              |
+                     busy tick is discarded
+```
+
+StreamingVLM is deferred. The published [StreamingVLM](https://proceedings.iclr.cc/paper_files/paper/2026/hash/6445dd88ebb9a6a3afa0b126ad87fe41-Abstract-Conference.html) architecture is aimed at stable understanding of effectively infinite video and depends on streaming-specific supervised fine-tuning. Revisit it for continuous commentary, garment-movement analysis or long-session memory, not for the initial slowly changing outfit state.
+
+## 24. Thirty-hour decision gates
+
+- [ ] Establish a working paired-image VLM response and fallback first.
+- [ ] Prepare webcam-like calibration images and safe person/outfit/session splits.
+- [ ] Cache DINOv2 Small and/or SigLIP 2 Base embeddings rather than fine-tuning an encoder.
+- [ ] Train the Instagram residual head if its cleaned metadata is ready.
+- [ ] Add Depop only if its data is ready and it improves held-out FITTED agreement.
+- [ ] Train the small human-calibrated combiner.
+- [ ] Integrate frame-quality states, explanation, and result synchronisation.
+- [ ] Rehearse the complete two-laptop flow and failure recovery.
+
+Stop source-expert work if the data cannot be cleaned and split safely. Do not integrate a learned ranker that fails person/creator-disjoint validation. Preserve a paired VLM-only path as the reliable demo fallback.
+
+## 25. Production runtime direction
+
+Python is appropriate for the hackathon inference service. At the intended 0.5–1 paired scoring requests per second, image preparation and model/GPU latency matter more than Python orchestration overhead.
+
+After the model is validated, production may export stable models to ONNX and benchmark TensorRT or another optimised runtime. C++ is useful for measured bottlenecks such as GPU-native decode/preprocessing, buffer reuse, tight latency, high concurrency or edge deployment. It is not necessary to rewrite the browser or orchestration layer in C++: browser WebRTC and codecs already execute in native browser code, while the application samples frames independently for inference.
+
+## 26. Calibration and expert evaluation
+
+Evaluation tasks:
+
+- [ ] Measure pairwise agreement with held-out human labels.
+- [ ] Measure inter-rater agreement.
+- [ ] Measure person-, creator-, outfit-, and session-disjoint performance.
+- [ ] Verify A/B swap invariance.
+- [ ] Evaluate draw and `cannot_judge` behaviour.
+- [ ] Measure stability across representative frames of one outfit.
+- [ ] Measure sensitivity to background, lighting, pose, and camera quality.
+- [ ] Measure the incremental value of every expert.
+- [ ] Record median and 95th-percentile live latency.
+
+Compare at least a VLM-only baseline, Instagram-only expert and human-calibrated ensemble. Remove an expert if it does not add held-out signal, regardless of its training-set performance.
 
 This document becomes **Final** only after the acceptance criteria are met and the open decisions required for the MVP are resolved.
