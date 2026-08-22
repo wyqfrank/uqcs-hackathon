@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, CameraOff, Copy, LogOut, Snowflake } from "lucide-react";
+import { Camera, CameraOff, Copy, LogOut, RotateCcw, Snowflake } from "lucide-react";
 import { useBattleScoring } from "@/hooks/useBattleScoring";
 import { useCamera } from "@/hooks/useCamera";
 import { useGarmentPerception } from "@/hooks/useGarmentPerception";
@@ -206,6 +206,18 @@ export function BattleRoom({
                       : "WAITING FOR READY"}
           </span>
         </Button>
+        {scoring.canRematch && (
+          <Button
+            variant="bare"
+            size="bare"
+            className="rematch-control"
+            aria-label="Start a rematch"
+            onClick={scoring.rematch}
+          >
+            <RotateCcw aria-hidden="true" />
+            <span>REMATCH</span>
+          </Button>
+        )}
         <Button variant="bare" size="bare" aria-label="Copy room code" onClick={() => void copyRoomCode()}><Copy aria-hidden="true" /><span>{copied ? "COPIED" : "COPY CODE"}</span></Button>
         <Button variant="bare" size="bare" className="leave-control" onClick={leave}><LogOut aria-hidden="true" /><span>LEAVE</span></Button>
       </div>
