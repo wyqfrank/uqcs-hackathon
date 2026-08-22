@@ -57,7 +57,98 @@ function frame(finalisationId, sampleId, byte = 1) {
   };
 }
 
+function garmentFrame(requestId, sampleId, byte = 1) {
+  return {
+    requestId,
+    sampleId,
+    capturedAtEpochMs: 1000,
+    mimeType: "image/webp",
+    image: Buffer.from([byte, byte + 1]),
+  };
+}
+
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+test("pairs live garment frames by server role and broadcasts a separate result", async () => {
+  const requests = [];
+  const result = {
+    battleId: "FIT-1234",
+    pairId: "final-1",
+    playerASampleId: "host-garment",
+    playerBSampleId: "guest-garment",
+    playerA: { categories: [] },
+    playerB: { categories: [] },
+  };
+  const { coordinator, io, host, guest } = setup(async (url, options) => {
+    requests.push({ url, form: options.body });
+    return { ok: true, json: async () => result };
+  });
+  const state = coordinator.perceptionRooms.get("FIT-1234");
+
+  coordinator.requestGarmentFrames("FIT-1234", state);
+  coordinator.submitGarmentFrame(
+    guest,
+    garmentFrame("final-1", "guest-garment", 7),
+    () => {},
+  );
+  coordinator.submitGarmentFrame(
+    host,
+    garmentFrame("final-1", "host-garment", 3),
+    () => {},
+  );
+  await flush();
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "http://inference.test/v1/garments/pair");
+  assert.equal(requests[0].form.get("player_a_sample_id"), "host-garment");
+  assert.equal(requests[0].form.get("player_b_sample_id"), "guest-garment");
+  assert.deepEqual(io.events.at(-1), {
+    roomId: "FIT-1234",
+    name: "garment-result",
+    payload: result,
+  });
+});
+
+test("live garment inference has zero queue depth while a pair is in flight", async () => {
+  let finishRequest;
+  const pending = new Promise((resolve) => { finishRequest = resolve; });
+  const { coordinator, io, host, guest } = setup(async () => pending);
+  const state = coordinator.perceptionRooms.get("FIT-1234");
+
+  coordinator.requestGarmentFrames("FIT-1234", state);
+  coordinator.submitGarmentFrame(host, garmentFrame("final-1", "host"), () => {});
+  coordinator.submitGarmentFrame(guest, garmentFrame("final-1", "guest"), () => {});
+  coordinator.requestGarmentFrames("FIT-1234", state);
+
+  assert.equal(state.inFlight, true);
+  assert.equal(state.requestId, null);
+  assert.equal(
+    io.events.filter(({ name }) => name === "garment-frame-request").length,
+    1,
+  );
+  finishRequest({ ok: false, json: async () => ({ detail: "not configured" }) });
+  await flush();
+});
+
+test("finalisation aborts and pauses the live garment lane", () => {
+  const { coordinator, host } = setup(async () => {
+    throw new Error("no request expected");
+  });
+  const state = coordinator.perceptionRooms.get("FIT-1234");
+  coordinator.requestGarmentFrames("FIT-1234", state);
+
+  coordinator.requestFinalisation(host, () => {});
+  let acknowledgement;
+  coordinator.submitGarmentFrame(
+    host,
+    garmentFrame("final-1", "late-garment"),
+    (value) => { acknowledgement = value; },
+  );
+
+  assert.equal(coordinator.perceptionRooms.has("FIT-1234"), false);
+  assert.equal(acknowledgement.ok, false);
+  assert.equal(acknowledgement.paused, true);
+});
 
 test("pairs server-derived roles once and broadcasts the authoritative result", async () => {
   const requests = [];

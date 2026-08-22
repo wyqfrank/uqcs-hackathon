@@ -13,6 +13,8 @@ class Settings:
     vlm_media_resolution: str
     vlm_timeout_seconds: float
     vlm_prompt_version: str
+    garment_backend: str | None
+    garment_checkpoint_path: str | None
     garment_model_id: str | None
     garment_box_threshold: float
     garment_text_threshold: float
@@ -34,8 +36,10 @@ def get_settings() -> Settings:
         vlm_media_resolution=os.getenv("FITTED_VLM_MEDIA_RESOLUTION", "high"),
         vlm_timeout_seconds=float(os.getenv("FITTED_VLM_TIMEOUT_SECONDS", "12")),
         vlm_prompt_version=os.getenv("FITTED_VLM_PROMPT_VERSION", "v1"),
+        garment_backend=os.getenv("FITTED_GARMENT_BACKEND") or None,
+        garment_checkpoint_path=os.getenv("FITTED_GARMENT_CHECKPOINT_PATH") or None,
         garment_model_id=os.getenv("FITTED_GARMENT_MODEL_ID") or None,
-        garment_box_threshold=float(os.getenv("FITTED_GARMENT_BOX_THRESHOLD", "0.35")),
+        garment_box_threshold=float(os.getenv("FITTED_GARMENT_BOX_THRESHOLD", "0.50")),
         garment_text_threshold=float(os.getenv("FITTED_GARMENT_TEXT_THRESHOLD", "0.25")),
         garment_device=os.getenv("FITTED_GARMENT_DEVICE") or None,
         garment_local_files_only=os.getenv(

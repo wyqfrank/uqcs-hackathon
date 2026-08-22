@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from importlib import import_module
+from importlib.metadata import PackageNotFoundError, version
 from inspect import signature
 from io import BytesIO
+from pathlib import Path
 from time import perf_counter
-from typing import Protocol
+from typing import Any, Protocol
 
 from .config import Settings
+from .fashionpedia import (
+    FASHIONPEDIA_TOTAL_CLASS_COUNT,
+    fashionpedia_category_for_name,
+    normalize_fashionpedia_name,
+    validate_fashionpedia_class_names,
+)
 from .schemas import (
     GarmentCategory,
     GarmentCategoryResult,
@@ -14,6 +25,11 @@ from .schemas import (
     GarmentPerceptionResponse,
     NormalizedBox,
 )
+
+RFDETR_PACKAGE_VERSION = "1.9.3"
+RFDETR_CHECKPOINT_REVISION = "f1b64c11fa42d2f7455708b7a05f81c015461427"
+RFDETR_CHECKPOINT_SHA256 = "aafefc440ea8f3f388e894a898e4270a2eeb6e38a3c3ffd3751d07d0f30b26bb"
+RFDETR_DEFAULT_THRESHOLD = 0.50
 
 CATEGORY_ORDER: tuple[GarmentCategory, ...] = (
     "top",
@@ -49,8 +65,16 @@ class GarmentModelNotReadyError(RuntimeError):
     """Raised when garment perception is requested without a configured model."""
 
 
+class InvalidGarmentCheckpointError(GarmentModelNotReadyError):
+    """Raised when checkpoint provenance, structure, or taxonomy is invalid."""
+
+
 class InvalidGarmentImageError(ValueError):
     """Raised when uploaded bytes cannot be decoded as an image."""
+
+
+class GarmentInferenceError(RuntimeError):
+    """Raised when a loaded detector violates its prediction contract."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +89,8 @@ class GarmentDetector(Protocol):
     model_version: str
 
     def detect(self, image_bytes: bytes) -> GarmentPerceptionResponse: ...
+
+    def detect_many(self, images: Sequence[bytes]) -> list[GarmentPerceptionResponse]: ...
 
 
 def grounding_dino_box_threshold_argument(processor: object) -> str:
@@ -81,17 +107,25 @@ class UnavailableGarmentDetector:
     def detect(self, image_bytes: bytes) -> GarmentPerceptionResponse:
         del image_bytes
         raise GarmentModelNotReadyError(
-            "No garment model is configured. Install the ML extras and set "
-            "FITTED_GARMENT_MODEL_ID."
+            "No garment model is configured. Configure Grounding DINO or RF-DETR."
+        )
+
+    def detect_many(self, images: Sequence[bytes]) -> list[GarmentPerceptionResponse]:
+        del images
+        raise GarmentModelNotReadyError(
+            "No garment model is configured. Configure Grounding DINO or RF-DETR."
         )
 
 
 def _normalise_label(label: str) -> str:
-    return label.strip().lower().rstrip(".")
+    return " ".join(label.strip().lower().rstrip(".").split())
 
 
 def _category_for_label(label: str) -> GarmentCategory | None:
     normalised = _normalise_label(label)
+    fashionpedia = fashionpedia_category_for_name(normalised)
+    if fashionpedia:
+        return fashionpedia
     direct = LABEL_TO_CATEGORY.get(normalised)
     if direct:
         return direct
@@ -147,24 +181,41 @@ def _covered_fraction(container: NormalizedBox, item: NormalizedBox) -> float:
     return intersection / item_area if item_area > 0 else 0.0
 
 
-def _remove_conflicting_one_piece_detections(
+def _reconcile_one_piece_detections(
     grouped: dict[GarmentCategory, list[GarmentDetection]],
 ) -> None:
-    retained: list[GarmentDetection] = []
+    retained_dresses: list[GarmentDetection] = []
+    removed_top_ids: set[int] = set()
+    removed_bottom_ids: set[int] = set()
+
     for one_piece in grouped["dress"]:
-        has_stronger_top = any(
-            top.confidence >= one_piece.confidence
-            and _covered_fraction(one_piece.box, top.box) >= 0.7
+        overlapping_tops = [
+            top
             for top in grouped["top"]
-        )
-        has_stronger_bottoms = any(
-            bottoms.confidence >= one_piece.confidence
-            and _covered_fraction(one_piece.box, bottoms.box) >= 0.7
+            if _covered_fraction(one_piece.box, top.box) >= 0.7
+        ]
+        overlapping_bottoms = [
+            bottoms
             for bottoms in grouped["bottoms"]
+            if _covered_fraction(one_piece.box, bottoms.box) >= 0.7
+        ]
+        overlapping_separates = [*overlapping_tops, *overlapping_bottoms]
+        one_piece_is_strongest = overlapping_separates and all(
+            one_piece.confidence > separate.confidence
+            for separate in overlapping_separates
         )
-        if not (has_stronger_top and has_stronger_bottoms):
-            retained.append(one_piece)
-    grouped["dress"] = retained
+        if overlapping_separates and not one_piece_is_strongest:
+            continue
+
+        retained_dresses.append(one_piece)
+        removed_top_ids.update(id(top) for top in overlapping_tops)
+        removed_bottom_ids.update(id(bottoms) for bottoms in overlapping_bottoms)
+
+    grouped["dress"] = retained_dresses
+    grouped["top"] = [item for item in grouped["top"] if id(item) not in removed_top_ids]
+    grouped["bottoms"] = [
+        item for item in grouped["bottoms"] if id(item) not in removed_bottom_ids
+    ]
 
 
 def build_garment_response(
@@ -198,7 +249,7 @@ def build_garment_response(
             continue
         grouped[category].append(detection)
 
-    _remove_conflicting_one_piece_detections(grouped)
+    _reconcile_one_piece_detections(grouped)
     categories = [
         GarmentCategoryResult(
             category=category,
@@ -212,6 +263,62 @@ def build_garment_response(
         categories=categories,
         latency_ms=latency_ms,
     )
+
+
+def checkpoint_sha256(checkpoint_path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(checkpoint_path).open("rb") as checkpoint:
+        for chunk in iter(lambda: checkpoint.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_checkpoint(checkpoint_path: Path, expected_sha256: str) -> None:
+    if not checkpoint_path.is_file():
+        raise InvalidGarmentCheckpointError(
+            f"RF-DETR checkpoint does not exist: {checkpoint_path}"
+        )
+    actual_sha256 = checkpoint_sha256(checkpoint_path)
+    if actual_sha256.lower() != expected_sha256.lower():
+        raise InvalidGarmentCheckpointError(
+            "RF-DETR checkpoint SHA-256 does not match the pinned Fashionpedia artifact."
+        )
+
+
+def _decode_rgb_images(image_bytes: Sequence[bytes]) -> tuple[list[Any], list[tuple[int, int]]]:
+    try:
+        image_module = import_module("PIL.Image")
+        unidentified_error = import_module("PIL").UnidentifiedImageError
+    except ImportError as error:
+        raise GarmentModelNotReadyError("Garment perception requires Pillow.") from error
+
+    decoded: list[Any] = []
+    sizes: list[tuple[int, int]] = []
+    try:
+        for contents in image_bytes:
+            try:
+                image = image_module.open(BytesIO(contents)).convert("RGB")
+                image.load()
+            except (unidentified_error, OSError, ValueError) as error:
+                raise InvalidGarmentImageError("Image could not be decoded.") from error
+            decoded.append(image)
+            sizes.append(image.size)
+    except Exception:
+        for image in decoded:
+            image.close()
+        raise
+    return decoded, sizes
+
+
+def _model_class_names(model: object) -> tuple[str, ...]:
+    model_context = getattr(model, "model", None)
+    class_names = getattr(model_context, "class_names", None)
+    if class_names is None:
+        class_names = getattr(model, "class_names", None)
+    try:
+        return validate_fashionpedia_class_names(class_names)
+    except ValueError as error:
+        raise InvalidGarmentCheckpointError(str(error)) from error
 
 
 class GroundingDinoGarmentDetector:
@@ -247,53 +354,243 @@ class GroundingDinoGarmentDetector:
         self.model_version = model_id
 
     def detect(self, image_bytes: bytes) -> GarmentPerceptionResponse:
+        return self.detect_many([image_bytes])[0]
+
+    def detect_many(self, images: Sequence[bytes]) -> list[GarmentPerceptionResponse]:
+        return [self._detect_one(image) for image in images]
+
+    def _detect_one(self, image_bytes: bytes) -> GarmentPerceptionResponse:
+        decoded, _ = _decode_rgb_images([image_bytes])
+        image = decoded[0]
         try:
-            from PIL import Image, UnidentifiedImageError
+            started_at = perf_counter()
+            inputs = self._processor(
+                images=image,
+                text=GROUNDING_DINO_PROMPT,
+                return_tensors="pt",
+            ).to(self._device)
+            with self._torch.no_grad():
+                outputs = self._model(**inputs)
+            threshold_argument = grounding_dino_box_threshold_argument(self._processor)
+            result = self._processor.post_process_grounded_object_detection(
+                outputs,
+                inputs.input_ids,
+                **{
+                    threshold_argument: self._box_threshold,
+                    "text_threshold": self._text_threshold,
+                    "target_sizes": [image.size[::-1]],
+                },
+            )[0]
 
-            image = Image.open(BytesIO(image_bytes)).convert("RGB")
-        except (UnidentifiedImageError, OSError) as error:
-            raise InvalidGarmentImageError("Image could not be decoded.") from error
-
-        started_at = perf_counter()
-        inputs = self._processor(
-            images=image,
-            text=GROUNDING_DINO_PROMPT,
-            return_tensors="pt",
-        ).to(self._device)
-        with self._torch.no_grad():
-            outputs = self._model(**inputs)
-        threshold_argument = grounding_dino_box_threshold_argument(self._processor)
-        result = self._processor.post_process_grounded_object_detection(
-            outputs,
-            inputs.input_ids,
-            **{
-                threshold_argument: self._box_threshold,
-                "text_threshold": self._text_threshold,
-                "target_sizes": [image.size[::-1]],
-            },
-        )[0]
-
-        labels = result["text_labels"] if "text_labels" in result else result["labels"]
-        raw_detections = [
-            RawGarmentDetection(
-                label=str(label),
-                confidence=float(score),
-                box=tuple(float(value) for value in box),
+            labels = result["text_labels"] if "text_labels" in result else result["labels"]
+            raw_detections = [
+                RawGarmentDetection(
+                    label=str(label),
+                    confidence=float(score),
+                    box=tuple(float(value) for value in box),
+                )
+                for label, score, box in zip(
+                    labels, result["scores"], result["boxes"], strict=True
+                )
+            ]
+            return build_garment_response(
+                raw_detections,
+                image_width=image.width,
+                image_height=image.height,
+                model_version=self.model_version,
+                latency_ms=round((perf_counter() - started_at) * 1000),
             )
-            for label, score, box in zip(
-                labels, result["scores"], result["boxes"], strict=True
+        finally:
+            image.close()
+
+
+class RFDetrGarmentDetector:
+    ready = True
+
+    def __init__(
+        self,
+        checkpoint_path: str | Path,
+        *,
+        threshold: float = RFDETR_DEFAULT_THRESHOLD,
+        device: str = "cuda",
+        expected_sha256: str = RFDETR_CHECKPOINT_SHA256,
+        model_factory: Callable[..., object] | None = None,
+        torch_module: object | None = None,
+        installed_rfdetr_version: str | None = None,
+    ) -> None:
+        if not 0 <= threshold <= 1:
+            raise ValueError("RF-DETR threshold must be between 0 and 1.")
+        if not device.startswith("cuda"):
+            raise GarmentModelNotReadyError("RF-DETR hackathon runtime requires CUDA.")
+
+        checkpoint = Path(checkpoint_path).resolve()
+        _verify_checkpoint(checkpoint, expected_sha256)
+
+        if torch_module is None:
+            try:
+                torch_module = import_module("torch")
+            except ImportError as error:
+                raise GarmentModelNotReadyError("RF-DETR requires PyTorch.") from error
+        cuda = getattr(torch_module, "cuda", None)
+        if cuda is None or not cuda.is_available():
+            raise GarmentModelNotReadyError("RF-DETR requires CUDA-enabled PyTorch.")
+
+        if model_factory is None:
+            try:
+                installed_version = version("rfdetr")
+                model_factory = import_module("rfdetr").RFDETRSegSmall
+            except (ImportError, PackageNotFoundError) as error:
+                raise GarmentModelNotReadyError(
+                    f"RF-DETR requires rfdetr=={RFDETR_PACKAGE_VERSION}."
+                ) from error
+        else:
+            installed_version = installed_rfdetr_version or RFDETR_PACKAGE_VERSION
+        if installed_version != RFDETR_PACKAGE_VERSION:
+            raise GarmentModelNotReadyError(
+                f"RF-DETR requires rfdetr=={RFDETR_PACKAGE_VERSION}; "
+                f"found {installed_version}."
             )
-        ]
-        return build_garment_response(
-            raw_detections,
-            image_width=image.width,
-            image_height=image.height,
-            model_version=self.model_version,
-            latency_ms=round((perf_counter() - started_at) * 1000),
+
+        try:
+            model = model_factory(
+                pretrain_weights=str(checkpoint),
+                trust_checkpoint=False,
+                num_classes=FASHIONPEDIA_TOTAL_CLASS_COUNT,
+                device=device,
+            )
+        except Exception as error:
+            raise InvalidGarmentCheckpointError(
+                "RF-DETR could not safely load the pinned Fashionpedia checkpoint."
+            ) from error
+
+        self._class_names = _model_class_names(model)
+        inference = getattr(model, "inference", None)
+        if not callable(inference):
+            raise GarmentModelNotReadyError(
+                "RF-DETR 1.9.3 does not expose its inference optimization API."
+            )
+        try:
+            inference(compile=False, inplace=True, dtype="float16")
+        except Exception as error:
+            raise GarmentModelNotReadyError(
+                "RF-DETR could not enable CUDA FP16 inference."
+            ) from error
+
+        self._model = model
+        self._threshold = threshold
+        self._checkpoint_sha256 = expected_sha256.lower()
+        self.model_version = (
+            "rfdetr-seg-small-fashionpedia"
+            f"@{RFDETR_CHECKPOINT_REVISION[:8]}"
+            f"+sha256:{self._checkpoint_sha256[:12]}"
         )
+
+    def detect(self, image_bytes: bytes) -> GarmentPerceptionResponse:
+        return self.detect_many([image_bytes])[0]
+
+    def detect_many(self, images: Sequence[bytes]) -> list[GarmentPerceptionResponse]:
+        if not images:
+            return []
+        decoded, sizes = _decode_rgb_images(images)
+        try:
+            started_at = perf_counter()
+            predictions = self._model.predict(decoded, threshold=self._threshold)
+            latency_ms = round((perf_counter() - started_at) * 1000)
+            if len(decoded) == 1 and not isinstance(predictions, (list, tuple)):
+                predictions = [predictions]
+            if len(predictions) != len(decoded):
+                raise GarmentInferenceError(
+                    "RF-DETR returned a different number of predictions than input images."
+                )
+
+            responses: list[GarmentPerceptionResponse] = []
+            for prediction, (width, height) in zip(predictions, sizes, strict=True):
+                responses.append(
+                    build_garment_response(
+                        self._raw_detections(prediction),
+                        image_width=width,
+                        image_height=height,
+                        model_version=self.model_version,
+                        latency_ms=latency_ms,
+                    )
+                )
+            return responses
+        finally:
+            for image in decoded:
+                image.close()
+
+    def _raw_detections(self, prediction: object) -> list[RawGarmentDetection]:
+        boxes = getattr(prediction, "xyxy", None)
+        confidences = getattr(prediction, "confidence", None)
+        class_ids = getattr(prediction, "class_id", None)
+        data = getattr(prediction, "data", None)
+        class_names = data.get("class_name") if isinstance(data, dict) else None
+        if boxes is None or confidences is None or class_ids is None or class_names is None:
+            raise GarmentInferenceError(
+                "RF-DETR prediction is missing boxes, confidence, class IDs, or class names."
+            )
+
+        raw: list[RawGarmentDetection] = []
+        try:
+            rows = zip(boxes, confidences, class_ids, class_names, strict=True)
+            for box, confidence, class_id_value, class_name_value in rows:
+                class_id = int(class_id_value)
+                if not 0 <= class_id < FASHIONPEDIA_TOTAL_CLASS_COUNT:
+                    raise GarmentInferenceError(
+                        f"RF-DETR returned out-of-range Fashionpedia class ID {class_id}."
+                    )
+                class_name = normalize_fashionpedia_name(str(class_name_value))
+                if class_name != self._class_names[class_id]:
+                    raise GarmentInferenceError(
+                        "RF-DETR class ID/name mapping does not match the pinned checkpoint."
+                    )
+                raw.append(
+                    RawGarmentDetection(
+                        label=class_name,
+                        confidence=float(confidence),
+                        box=tuple(float(value) for value in box),
+                    )
+                )
+        except ValueError as error:
+            raise GarmentInferenceError(
+                "RF-DETR prediction arrays have inconsistent lengths."
+            ) from error
+        return raw
 
 
 def create_garment_detector(settings: Settings) -> GarmentDetector:
+    if settings.garment_backend == "rfdetr":
+        if not settings.garment_checkpoint_path:
+            raise GarmentModelNotReadyError(
+                "FITTED_GARMENT_CHECKPOINT_PATH is required for RF-DETR."
+            )
+        return RFDetrGarmentDetector(
+            checkpoint_path=settings.garment_checkpoint_path,
+            threshold=settings.garment_box_threshold,
+            device=settings.garment_device or "cuda",
+        )
+    if settings.garment_backend == "grounding_dino":
+        if not settings.garment_model_id:
+            raise GarmentModelNotReadyError(
+                "FITTED_GARMENT_MODEL_ID is required for Grounding DINO."
+            )
+        return GroundingDinoGarmentDetector(
+            model_id=settings.garment_model_id,
+            box_threshold=settings.garment_box_threshold,
+            text_threshold=settings.garment_text_threshold,
+            device=settings.garment_device,
+            local_files_only=settings.garment_local_files_only,
+        )
+    if settings.garment_backend:
+        raise GarmentModelNotReadyError(
+            f"Unsupported garment backend: {settings.garment_backend}."
+        )
+    if settings.garment_checkpoint_path:
+        return RFDetrGarmentDetector(
+            checkpoint_path=settings.garment_checkpoint_path,
+            threshold=settings.garment_box_threshold,
+            device=settings.garment_device or "cuda",
+        )
     if not settings.garment_model_id:
         return UnavailableGarmentDetector()
     return GroundingDinoGarmentDetector(

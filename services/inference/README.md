@@ -27,6 +27,9 @@ The API runs at `http://localhost:8000`; its OpenAPI UI is available at
   the diagnostic text prompt matched by the model, and explicit per-category
   detection state. Consumers should use the canonical category rather than treat
   the matched prompt as a reliable fine-grained subtype.
+- `POST /v1/garments/pair` accepts authoritative Player A/B sample identity and
+  two canonical crops. It runs one detector batch and returns both ordered
+  garment responses for the live perception lane.
 
 The engine deliberately returns `503` unless the VLM fallback is configured. To
 enable Gemini final scoring:
@@ -60,19 +63,37 @@ npm run test:api -- -k real_gemini_pair
 
 ## Garment perception
 
-The first fashion-perception baseline uses Grounding DINO Tiny with a reduced,
-product-owned taxonomy. Install the optional ML dependencies and enable the model:
+The live candidate is RF-DETR-Seg Small with a pinned Fashionpedia checkpoint.
+Use a CUDA-enabled PyTorch 2.12.1 build appropriate for the machine, then install
+the exact adapter dependencies:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e "services/inference[dev,ml]"
-$env:FITTED_GARMENT_MODEL_ID = "IDEA-Research/grounding-dino-tiny"
+.\.venv\Scripts\python.exe -m pip install -e "services/inference[dev,rf]"
+$env:FITTED_GARMENT_BACKEND = "rfdetr"
+$env:FITTED_GARMENT_CHECKPOINT_PATH = ".\models\rfdetr-fashionpedia\checkpoint_best_ema.pth"
+$env:FITTED_GARMENT_DEVICE = "cuda"
 npm run dev:api
 ```
 
-The first configured startup downloads the model weights. The zero-shot adapter
-reports `not_detected` when a prompted category has no accepted box; it does not
-claim that the category is definitely absent. A later calibrated presence model
-may emit the separate `not_present` state.
+The service verifies revision
+`f1b64c11fa42d2f7455708b7a05f81c015461427`, SHA-256
+`aafefc440ea8f3f388e894a898e4270a2eeb6e38a3c3ffd3751d07d0f30b26bb`,
+the exact 46-class Fashionpedia order, CUDA availability, and checkpoint
+structure before enabling FP16 inference. It ignores the 19 garment-part classes
+and returns the reduced FITTED categories and boxes; masks are not exposed.
+
+Run the hardware benchmark against consented crops stored outside Git:
+
+```powershell
+.\.venv\Scripts\python.exe services\inference\scripts\benchmark_garments.py `
+  --checkpoint .\models\rfdetr-fashionpedia\checkpoint_best_ema.pth `
+  --fixtures C:\path\to\consented-crops
+```
+
+Grounding DINO Tiny remains available through the `ml` extra with
+`FITTED_GARMENT_BACKEND=grounding_dino`; it is a diagnostic baseline only. Both
+adapters report `not_detected` when a category has no accepted box and never turn
+a missing category into a zero score.
 
 Set `FITTED_GARMENT_LOCAL_FILES_ONLY=true` after the checkpoint is cached, or in
-deployments where startup must never contact the Hugging Face Hub.
+deployments where Grounding DINO startup must never contact the Hugging Face Hub.

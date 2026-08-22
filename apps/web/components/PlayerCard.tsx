@@ -1,7 +1,9 @@
 import { useEffect, type RefObject } from "react";
 import { Camera } from "lucide-react";
 import type { DetectorState, OutfitDetectionResult } from "@/lib/cv/types";
+import type { GarmentCategory } from "@/lib/garmentPerception";
 import { FittedScore } from "./FittedScore";
+import { GarmentCategoryChips } from "./GarmentCategoryChips";
 import { OutfitDetectionOverlay } from "./OutfitDetectionOverlay";
 
 export function PlayerCard({
@@ -14,6 +16,7 @@ export function PlayerCard({
   analysing,
   waitingText,
   detection,
+  garmentCategories = [],
 }: {
   label: string;
   number: string;
@@ -23,6 +26,7 @@ export function PlayerCard({
   score: number | null;
   analysing: boolean;
   waitingText: string;
+  garmentCategories?: GarmentCategory[];
   detection?: {
     state: DetectorState;
     result: OutfitDetectionResult | null;
@@ -57,6 +61,7 @@ export function PlayerCard({
         <div className="corner corner-tl" /><div className="corner corner-tr" />
         <div className="corner corner-bl" /><div className="corner corner-br" />
         <FittedScore score={score} active={analysing} />
+        <GarmentCategoryChips categories={garmentCategories} />
       </div>
     </article>
   );

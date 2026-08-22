@@ -360,8 +360,8 @@ Current experiment status:
 - [x] Smoke-test the configured model on a single-person full-body outfit image.
 - [x] Reject Grounding DINO Tiny as the live MVP runtime after measuring approximately 10.6 seconds for one CPU inference.
 - [x] Select the Fashionpedia-trained RF-DETR-Seg Small checkpoint as the only replacement candidate for the hackathon gate.
-- [ ] Pin and record the candidate checkpoint revision, checksum, declared Apache 2.0 weight licence, and required attribution.
-- [ ] Implement the RF-DETR-Seg adapter behind the existing garment-perception response.
+- [x] Pin and record the candidate checkpoint revision, checksum, declared Apache 2.0 weight licence, and required attribution.
+- [x] Implement the RF-DETR-Seg adapter behind the existing garment-perception response.
 - [ ] Run the live acceptance gate on 15–20 representative webcam crops from the intended demo hardware.
 - [ ] Connect passing garment results to the live battle loop at approximately 1 FPS with one request in flight.
 - [ ] Post-hackathon: map DeepFashion2 and Fashionpedia evaluation labels into the reduced product taxonomy and run full per-category evaluation.
@@ -373,6 +373,32 @@ The single-image Grounding DINO CPU smoke test detected the expected top, bottom
 Live garment perception means clothing categories update while the battle is running. It does not need to classify every displayed video frame. Schedule the newest canonical crop at approximately 1 FPS, allow one inference operation in flight, discard busy ticks, and keep the latest valid garment result visible between updates.
 
 Use [`resoa/garment-detector-seg`](https://huggingface.co/resoa/garment-detector-seg), an RF-DETR-Seg Small checkpoint trained on Fashionpedia, as the only replacement candidate. Its model card declares the weights Apache 2.0 and reports Fashionpedia validation metrics. The underlying open-source RF-DETR package and Apache-designated model weights are Apache 2.0; the exact candidate revision, checksum, licence files, and attribution must be recorded before integration.
+
+The integrated candidate is pinned to `rfdetr==1.9.3`, repository revision
+`f1b64c11fa42d2f7455708b7a05f81c015461427`, and checkpoint SHA-256
+`aafefc440ea8f3f388e894a898e4270a2eeb6e38a3c3ffd3751d07d0f30b26bb`.
+The checkpoint model card declares its weights Apache 2.0 and identifies
+Fashionpedia as CC BY 4.0 training data. Retain attribution to RF-DETR and
+Fashionpedia/Jia et al. when redistributing or demonstrating the model. Startup
+rejects any hash, safe-load structure, CUDA, package version, class count, or
+ordered class-name mismatch before the detector becomes ready.
+
+The first RTX 3060 Laptop GPU smoke gate used CUDA PyTorch `2.12.1+cu132`, three
+warm-up batches and twenty measured batches of two at threshold `0.50`. On two
+synthetic 640-pixel frames it completed all 20 batches with P50 `83.10 ms`, P95
+`100.18 ms`, and peak reserved VRAM `171,966,464` bytes. This verifies loading,
+batch stability, latency headroom, and memory headroom only. It does not satisfy
+the correctness gate: the required 15–20 consented webcam-like outfit crops and
+category/box review remain outstanding.
+
+The live transport is integrated behind readiness/configuration. The Node room
+coordinator requests one local crop from each browser approximately once per
+second, derives Player A/B from the socket role, invokes `/v1/garments/pair` once,
+and broadcasts category results separately from scoring. Busy ticks are skipped,
+stale request IDs are rejected, image buffers are discarded after request
+construction, and live garment work is aborted and paused during finalisation.
+The browser displays reduced category chips only; detector boxes are retained for
+future component work but are not drawn publicly.
 
 Time-box adapter implementation and the first hardware measurement to **90 minutes**. The candidate passes only if:
 
@@ -541,7 +567,8 @@ Keep pure crop, quality, motion, candidate-selection, and state-transition logic
 - [x] Implement and smoke-test the server-side garment-perception baseline.
 - [x] Decide that frozen-only garment perception does not satisfy the live product.
 - [x] Select RF-DETR-Seg Small as the only time-boxed live replacement candidate.
-- [ ] Implement the RF-DETR-Seg adapter and run the 90-minute acceptance gate.
+- [x] Implement and unit-test the RF-DETR-Seg adapter and paired inference boundary.
+- [ ] Run the representative-crop portion of the 90-minute acceptance gate.
 - [ ] Integrate garment perception at approximately 1 FPS only if the acceptance gate passes.
 - [ ] Post-hackathon: evaluate garment perception on mapped DeepFashion2, Fashionpedia, and larger webcam fixtures.
 

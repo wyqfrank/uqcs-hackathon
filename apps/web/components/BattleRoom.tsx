@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Camera, CameraOff, Copy, LogOut, Snowflake } from "lucide-react";
 import { useBattleScoring } from "@/hooks/useBattleScoring";
 import { useCamera } from "@/hooks/useCamera";
+import { useGarmentPerception } from "@/hooks/useGarmentPerception";
 import { useOutfitDetection } from "@/hooks/useOutfitDetection";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { scoresForRole } from "@/lib/scoring";
@@ -23,6 +24,13 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
   const rtc = useWebRTC(roomId, role, camera.stream);
   const outfitDetection = useOutfitDetection(localVideoRef, Boolean(camera.stream));
   const scoring = useBattleScoring(roomId, rtc.socket, outfitDetection);
+  const garmentPerception = useGarmentPerception(
+    roomId,
+    role,
+    rtc.socket,
+    outfitDetection,
+    rtc.connectionState === "connected" && !scoring.isBusy && !scoring.isLocked,
+  );
   const finalResult = scoring.state.phase === "final" ? scoring.state.result : null;
   const displayedScores = finalResult ? scoresForRole(finalResult, role) : null;
   const localScore = displayedScores?.localScore ?? null;
@@ -77,6 +85,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
             score={localScore} analysing={scoring.isBusy}
             waitingText={camera.status === "requesting" ? "OPENING CAMERA" : "CAMERA OFF"}
             detection={{ state: outfitDetection.detectorState, result: outfitDetection.result }}
+            garmentCategories={garmentPerception.localCategories}
           />
           <div className="versus-mark"><span>V</span><span>S</span></div>
           <PlayerCard
@@ -84,6 +93,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
             stream={rtc.remoteStream} videoRef={remoteVideoRef} muted={false}
             score={remoteScore} analysing={scoring.isBusy}
             waitingText={rtc.connectionState === "connecting" ? "CONNECTING" : "WAITING FOR OPPONENT"}
+            garmentCategories={garmentPerception.remoteCategories}
           />
         </div>
 

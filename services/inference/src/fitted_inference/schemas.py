@@ -62,6 +62,17 @@ class GarmentHealthResponse(ApiModel):
     model_version: str
 
 
+class GarmentPairResponse(ApiModel):
+    battle_id: str
+    pair_id: str
+    player_a_sample_id: str
+    player_b_sample_id: str
+    player_a_captured_at_ms: float
+    player_b_captured_at_ms: float
+    player_a: GarmentPerceptionResponse
+    player_b: GarmentPerceptionResponse
+
+
 class PlayerBreakdown(ApiModel):
     component_quality: float
     outfit_coordination: float

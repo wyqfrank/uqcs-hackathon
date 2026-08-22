@@ -86,6 +86,64 @@ def test_compare_rejects_oversized_image() -> None:
     assert response.status_code == 413
 
 
+def test_garment_pair_batches_players_in_authoritative_order(monkeypatch) -> None:
+    calls = []
+
+    class FakeGarmentDetector:
+        ready = True
+        model_version = "fake-fashionpedia"
+
+        def detect_many(self, images):
+            calls.append(images)
+            return [
+                build_garment_response(
+                    [RawGarmentDetection("shirt", 0.9, (0, 0, 32, 32))],
+                    32,
+                    64,
+                    self.model_version,
+                    5,
+                ),
+                build_garment_response(
+                    [RawGarmentDetection("pants", 0.8, (0, 32, 32, 64))],
+                    32,
+                    64,
+                    self.model_version,
+                    5,
+                ),
+            ]
+
+    monkeypatch.setattr(
+        main_module,
+        "create_garment_detector",
+        lambda _settings: FakeGarmentDetector(),
+    )
+    player_a = valid_image_bytes()
+    player_b = valid_image_bytes()
+    data = {
+        "battle_id": "FIT-1234",
+        "pair_id": "garment-pair-1",
+        "player_a_sample_id": "sample-a",
+        "player_b_sample_id": "sample-b",
+        "player_a_captured_at_ms": "1000",
+        "player_b_captured_at_ms": "1005",
+    }
+    files = {
+        "player_a": ("player-a.webp", player_a, "image/webp"),
+        "player_b": ("player-b.webp", player_b, "image/webp"),
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/v1/garments/pair", data=data, files=files)
+
+    assert response.status_code == 200
+    assert calls == [(player_a, player_b)]
+    payload = response.json()
+    assert payload["battleId"] == "FIT-1234"
+    assert payload["pairId"] == "garment-pair-1"
+    assert payload["playerA"]["categories"][0]["category"] == "top"
+    assert payload["playerB"]["categories"][1]["category"] == "bottoms"
+
+
 def test_compare_returns_typed_final_result_with_identity(monkeypatch) -> None:
     class FakeProvider:
         model_version = "fake-vlm"

@@ -18,6 +18,7 @@ from .engine import (
 )
 from .perception import (
     GarmentDetector,
+    GarmentInferenceError,
     GarmentModelNotReadyError,
     InvalidGarmentImageError,
     create_garment_detector,
@@ -25,6 +26,7 @@ from .perception import (
 from .schemas import (
     ComparisonResponse,
     GarmentHealthResponse,
+    GarmentPairResponse,
     GarmentPerceptionResponse,
     HealthResponse,
 )
@@ -101,6 +103,44 @@ async def detect_garments(
         raise HTTPException(status_code=503, detail=str(error)) from error
     except InvalidGarmentImageError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/v1/garments/pair", response_model=GarmentPairResponse)
+async def detect_garment_pair(
+    request: Request,
+    battle_id: Annotated[str, Form(min_length=1, max_length=64)],
+    pair_id: Annotated[str, Form(min_length=1, max_length=128)],
+    player_a_sample_id: Annotated[str, Form(min_length=1, max_length=128)],
+    player_b_sample_id: Annotated[str, Form(min_length=1, max_length=128)],
+    player_a_captured_at_ms: Annotated[float, Form(ge=0)],
+    player_b_captured_at_ms: Annotated[float, Form(ge=0)],
+    player_a: Annotated[UploadFile, File(description="Latest garment frame for player A")],
+    player_b: Annotated[UploadFile, File(description="Latest garment frame for player B")],
+) -> GarmentPairResponse:
+    images = await read_image(player_a), await read_image(player_b)
+    try:
+        results = await run_in_threadpool(
+            get_garment_detector(request).detect_many,
+            images,
+        )
+    except GarmentModelNotReadyError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except InvalidGarmentImageError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except GarmentInferenceError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    if len(results) != 2:
+        raise HTTPException(status_code=503, detail="Garment detector returned an invalid batch.")
+    return GarmentPairResponse(
+        battle_id=battle_id,
+        pair_id=pair_id,
+        player_a_sample_id=player_a_sample_id,
+        player_b_sample_id=player_b_sample_id,
+        player_a_captured_at_ms=player_a_captured_at_ms,
+        player_b_captured_at_ms=player_b_captured_at_ms,
+        player_a=results[0],
+        player_b=results[1],
+    )
 
 
 @app.post("/v1/compare", response_model=ComparisonResponse)

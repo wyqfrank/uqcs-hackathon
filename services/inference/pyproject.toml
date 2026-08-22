@@ -24,6 +24,12 @@ ml = [
   "torch>=2.6,<3",
   "transformers>=4.48,<6",
 ]
+rf = [
+  "pillow==12.3.0",
+  "rfdetr==1.9.3",
+  "torch==2.12.1",
+  "torchvision==0.27.1",
+]
 vlm = [
   "google-genai>=2.17,<3",
   "pillow>=11,<13",

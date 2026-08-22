@@ -51,6 +51,9 @@ This checklist is the high-level source of truth for specification and implement
 - [x] A typed server-side garment-perception API and Grounding DINO baseline adapter are implemented and smoke-tested on one full-body image.
 - [x] Grounding DINO is rejected as the live garment runtime after a measured approximately 10.6-second CPU inference.
 - [x] RF-DETR-Seg Small is selected as the only time-boxed live garment-perception candidate, with an explicit pass/fail gate.
+- [x] The RF-DETR adapter, batched garment API, server-owned 1 FPS zero-queue
+  transport, finalisation pause, and category-chip UI are implemented and covered
+  by automated tests.
 - [ ] RF-DETR-Seg meets the live latency and correctness gate on representative webcam crops from the intended demo hardware.
 - [ ] Passing garment perception updates the live battle at approximately 1 FPS with one inference operation in flight and no queued frames.
 - [ ] A frozen visual-encoder baseline is implemented and evaluated.

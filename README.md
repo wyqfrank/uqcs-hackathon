@@ -36,6 +36,13 @@ install them only when working on local garment or encoder experiments:
 .venv\Scripts\python -m pip install -e "services/inference[dev,ml]"
 ```
 
+For the CUDA RF-DETR garment lane, install the tested `rf` extra after selecting
+the CUDA-enabled PyTorch wheel appropriate for the demo laptop:
+
+```powershell
+.venv\Scripts\python -m pip install -e "services/inference[dev,rf]"
+```
+
 ## Run locally
 
 ```powershell
@@ -96,6 +103,8 @@ Laptop A's firewall if prompted.
 - `apps/web/lib/scoring.ts` defines the authoritative final-result client contract.
 - `apps/web/server.mjs` pairs one local crop from each player and invokes inference
   once per finalisation.
+- The same room coordinator requests paired garment crops at approximately 1 Hz,
+  permits one request in flight, and pauses that lane during finalisation.
 - `services/inference/src/fitted_inference/engine.py` is the model-loading and paired
   inference boundary. Models should load once during FastAPI startup.
 - Training datasets, model weights, checkpoints, and experiment output are ignored;
