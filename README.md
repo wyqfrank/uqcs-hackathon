@@ -28,9 +28,9 @@ From the repository root:
 npm run setup
 ```
 
-This installs the npm workspace and the Python service with its development tools.
-Large ML libraries are intentionally optional. Install them only when working on
-the model implementation:
+This installs the npm workspace, Python development tools, and the lightweight
+Gemini VLM client used by final scoring. Large local ML libraries remain optional;
+install them only when working on local garment or encoder experiments:
 
 ```powershell
 .venv\Scripts\python -m pip install -e "services/inference[dev,ml]"
@@ -49,8 +49,9 @@ This starts:
 - inference OpenAPI docs: `http://localhost:8000/docs`
 
 Run either process independently with `npm run dev:web` or `npm run dev:api`.
-The inference scaffold reports healthy but deliberately returns `503` for
-comparisons until an evaluated model is connected.
+Set `GEMINI_API_KEY` and `FITTED_SCORING_BACKEND=vlm_fallback` before starting the
+services to enable final comparison. Without them, the inference service remains
+healthy but explicitly reports its comparison model as unavailable.
 
 ## Useful commands
 
@@ -92,7 +93,9 @@ Laptop A's firewall if prompted.
 - `apps/web/server.mjs` hosts Next.js and the Socket.IO signalling server together.
 - `apps/web/hooks/useCamera.ts` owns local camera lifecycle.
 - `apps/web/hooks/useWebRTC.ts` owns the peer connection and remote stream.
-- `apps/web/lib/scoring.ts` is still the replaceable client-side placeholder.
+- `apps/web/lib/scoring.ts` defines the authoritative final-result client contract.
+- `apps/web/server.mjs` pairs one local crop from each player and invokes inference
+  once per finalisation.
 - `services/inference/src/fitted_inference/engine.py` is the model-loading and paired
   inference boundary. Models should load once during FastAPI startup.
 - Training datasets, model weights, checkpoints, and experiment output are ignored;

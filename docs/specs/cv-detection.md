@@ -2,7 +2,7 @@
 
 **Product:** FITTED
 **Status:** Draft  
-**Implementation:** Initial browser pipeline implemented; fixture calibration and live-device validation pending
+**Implementation:** Initial browser pipeline and server-side garment-perception baseline implemented; representative fixture calibration and live-device validation pending
 **Scope:** Live person detection, pose tracking, frame-quality validation, and canonical outfit cropping  
 **Out of scope for this implementation:** Taste scoring, source-expert training, pairwise calibration, VLM serving, and production deployment. Their contracts with detection are documented below.
 
@@ -96,19 +96,26 @@ HTMLVideoElement at camera frame rate
                     candidate-frame buffer
 ```
 
-The current PRD direction uses the host browser as the initial inference coordinator. At a rate-limited scoring tick, the host captures one explicit local/remote frame pair and submits it to the separate Python inference service at `/v1/compare`. The service revalidates frame quality and applies the selected canonical preprocessing consistently before scoring. Only one comparison may be in flight; a busy tick is discarded.
+Each browser submits only its newest valid local candidate with room, player,
+sample, and capture-time metadata. A server-side coordinator pairs fresh A/B
+submissions, invokes the separate Python inference service once for the room, and
+broadcasts one authoritative result. The service revalidates frame quality and
+applies the selected canonical preprocessing consistently before scoring. Only
+one comparison per room may be in flight; superseded or busy work is discarded.
 
 ```text
-Guest local feed ──► guest framing guidance
-       │
-       └──────── WebRTC remote feed ────────┐
-                                            │
-Host local feed ───► host framing guidance  ├──► paired /v1/compare request
-                                            │
-Host remote video element ──────────────────┘
+Player A local feed -> local framing guidance -> selected local candidate --\
+                                                                        server-side
+Player B local feed -> local framing guidance -> selected local candidate --/ pairing
+                                                                        coordinator
+                                                                            |
+                                                                  paired comparison
 ```
 
-This is a proposed first transport, not a final architecture decision. It must be tested for asymmetric WebRTC compression and capture quality. If it materially biases comparisons, each player should instead submit its locally selected frame and the service should pair the latest submissions by room. The detection contract must therefore remain usable by both coordinator models.
+This avoids asymmetric WebRTC compression in the scoring path because neither
+browser captures the other player's decoded remote stream. The existing Node
+room service owns the pairing coordinator and the Python inference service stays
+stateless.
 
 ## 6. Scheduling and backpressure
 
@@ -333,7 +340,49 @@ headwear
 other accessory
 ```
 
-Grounding DINO is a candidate for the initial zero-shot experiment. Fashionpedia and DeepFashion2 may provide useful categories, masks, landmarks, or fine-tuning data.
+Grounding DINO was the initial zero-shot experiment. Fashionpedia and DeepFashion2 remain useful sources of categories, masks, landmarks, and later evaluation data, but broad checkpoint comparison and dataset training are deferred until after the hackathon.
+
+The implemented baseline uses Grounding DINO Tiny in the Python inference service. It queries a reduced set of text prompts and maps them into the product taxonomy above. `/v1/garments` accepts one canonical outfit crop and returns normalised boxes, canonical categories, confidence, a diagnostic matched prompt, and an explicit state for every queried category. The matched prompt must not be presented as a reliable fine-grained subtype; the canonical category is the product contract.
+
+The zero-shot adapter uses `not_detected` when no box passes the configured thresholds. It does not emit `not_present`, because absence cannot be established reliably from a missed zero-shot detection. A later presence model may emit `not_present` after calibration.
+
+DeepFashion2 and Fashionpedia enter as evaluation and improvement data after this zero-shot baseline:
+
+- DeepFashion2 supplies garment categories, boxes, masks, landmarks, viewpoint, and occlusion cases for localisation and visibility evaluation.
+- Fashionpedia supplies apparel masks, parts, fine-grained attributes, and an expert-defined ontology for later segmentation and attribute experiments.
+- Neither dataset supplies FITTED preference targets or directly determines fashion quality.
+
+Current experiment status:
+
+- [x] Define the reduced product garment taxonomy and typed service response.
+- [x] Implement a lazy, optional Grounding DINO Tiny adapter in the Python service.
+- [x] Add category mapping, box normalisation, duplicate suppression, and one-piece conflict handling tests.
+- [x] Smoke-test the configured model on a single-person full-body outfit image.
+- [x] Reject Grounding DINO Tiny as the live MVP runtime after measuring approximately 10.6 seconds for one CPU inference.
+- [x] Select the Fashionpedia-trained RF-DETR-Seg Small checkpoint as the only replacement candidate for the hackathon gate.
+- [ ] Pin and record the candidate checkpoint revision, checksum, declared Apache 2.0 weight licence, and required attribution.
+- [ ] Implement the RF-DETR-Seg adapter behind the existing garment-perception response.
+- [ ] Run the live acceptance gate on 15–20 representative webcam crops from the intended demo hardware.
+- [ ] Connect passing garment results to the live battle loop at approximately 1 FPS with one request in flight.
+- [ ] Post-hackathon: map DeepFashion2 and Fashionpedia evaluation labels into the reduced product taxonomy and run full per-category evaluation.
+
+The single-image Grounding DINO CPU smoke test detected the expected top, bottoms, and two shoes after conservative category-consistency post-processing, but inference took approximately 10.6 seconds. That proves the adapter but fails the live-product requirement. Grounding DINO remains a diagnostic baseline and must not be integrated as a frozen-only garment result.
+
+### 12.1 Hackathon live gate
+
+Live garment perception means clothing categories update while the battle is running. It does not need to classify every displayed video frame. Schedule the newest canonical crop at approximately 1 FPS, allow one inference operation in flight, discard busy ticks, and keep the latest valid garment result visible between updates.
+
+Use [`resoa/garment-detector-seg`](https://huggingface.co/resoa/garment-detector-seg), an RF-DETR-Seg Small checkpoint trained on Fashionpedia, as the only replacement candidate. Its model card declares the weights Apache 2.0 and reports Fashionpedia validation metrics. The underlying open-source RF-DETR package and Apache-designated model weights are Apache 2.0; the exact candidate revision, checksum, licence files, and attribution must be recorded before integration.
+
+Time-box adapter implementation and the first hardware measurement to **90 minutes**. The candidate passes only if:
+
+- it loads once in the existing Python inference service;
+- its outputs map into the existing reduced product taxonomy;
+- it sustains approximately one result per second on the intended demo hardware without stalling the displayed video;
+- scheduling maintains zero queued frames and no more than one inference operation in flight; and
+- a 15–20 crop gate set shows usable top, bottoms, dress, outerwear, and shoe behaviour without a demo-breaking false-positive pattern.
+
+If any gate fails within the time-box, remove live garment categorisation from the hackathon MVP. Do not substitute a frozen-only garment result. Whole-outfit scoring and pose/frame-quality detection must continue without component detections.
 
 Requirements for any garment detector:
 
@@ -344,7 +393,7 @@ Requirements for any garment detector:
 - never multiply fashion quality directly by raw detection confidence;
 - demonstrate measurable improvement over the whole-outfit baseline before becoming an MVP dependency.
 
-Segmentation should only be added if bounding boxes are proven insufficient for a measured requirement.
+RF-DETR-Seg may produce masks, but the first live integration should consume only canonical categories and boxes. Add masks to the product path only if they are available without breaking the time-box or latency gate and materially improve a required overlay or visibility check.
 
 ## 13. Multi-view and spinning
 
@@ -424,8 +473,10 @@ Training, tuning, and evaluation fixtures must be separated where thresholds are
 - [ ] A brief miss does not cause UI flicker.
 - [ ] A stale result is never sent as a new scoring frame.
 - [ ] Camera stop, restart, room leave, and component unmount release detection resources.
-- [ ] The host submits one explicit local/remote pair with at most one `/v1/compare` request in flight.
-- [ ] Host-captured remote frames are checked for asymmetric WebRTC quality bias.
+- [ ] Each client submits only its latest stable local candidate with player,
+  sample, and capture-time identity.
+- [ ] The server pairs fresh submissions once per room and discards stale,
+  duplicate, and superseded work.
 
 ### Acceptance criteria before finalising this spec
 
@@ -435,7 +486,8 @@ Training, tuning, and evaluation fixtures must be separated where thresholds are
 - [ ] False acceptance of cropped or multi-person frames is measured.
 - [ ] Motion behaviour is tested with walking, turning, and a controlled spin.
 - [ ] The selected preprocessing variant is evaluated for score stability and person/background bias.
-- [ ] The host-coordinator transport is validated or replaced with per-client submission based on measured quality.
+- [ ] Per-client local-frame submission is validated for fresh, synchronised pair
+  construction on the intended two-laptop setup.
 - [ ] Detection ownership, pairing, and frame transport are recorded as final decisions in the PRD.
 
 ## 17. Proposed file organisation
@@ -479,11 +531,19 @@ Keep pure crop, quality, motion, candidate-selection, and state-transition logic
 - [x] Implement the recent candidate-frame buffer and selector.
 - [x] Integrate detection status into the battle UI.
 - [ ] Pad and resize selected crops to the encoder input shape without stretching.
-- [ ] Connect host-coordinated paired capture to the `/v1/compare` service boundary.
+- [x] Connect per-client local-candidate submission and server-side pairing to the
+  `/v1/compare` service boundary.
+- [x] On finalisation, preserve one fresh stable synchronised pair or verified
+  short burst and reject late live detection results for that battle.
 - [ ] Connect selected crops to the visual-encoder baseline.
 - [ ] Test camera restart, disconnect, and cleanup behaviour.
 - [ ] Run face-blur and background-neutralisation ablations.
-- [ ] Decide whether garment detection adds enough value for the MVP.
+- [x] Implement and smoke-test the server-side garment-perception baseline.
+- [x] Decide that frozen-only garment perception does not satisfy the live product.
+- [x] Select RF-DETR-Seg Small as the only time-boxed live replacement candidate.
+- [ ] Implement the RF-DETR-Seg adapter and run the 90-minute acceptance gate.
+- [ ] Integrate garment perception at approximately 1 FPS only if the acceptance gate passes.
+- [ ] Post-hackathon: evaluate garment perception on mapped DeepFashion2, Fashionpedia, and larger webcam fixtures.
 
 ## 19. Open decisions
 
@@ -493,7 +553,6 @@ Keep pure crop, quality, motion, candidate-selection, and state-transition logic
 - [ ] Whether face blurring becomes the default preprocessing path.
 - [ ] Whether background segmentation improves fairness without removing useful accessories or silhouette.
 - [ ] Whether garment boxes or masks materially improve target-audience preference accuracy.
-- [ ] Whether host-coordinated capture is sufficiently fair or per-client submission is required.
 
 Decisions locked for the initial implementation:
 
@@ -501,7 +560,16 @@ Decisions locked for the initial implementation:
 - missing feet are allowed when head, torso, and knee evidence is usable;
 - Chrome and Edge are the supported initial browsers;
 - the separate Python service owns online model inference;
-- a paired host request is the first transport to test, while final transport ownership remains open.
+- live garment perception runs asynchronously at approximately 1 FPS and never queues frames;
+- RF-DETR-Seg Small is the only hackathon replacement candidate for the rejected Grounding DINO live runtime;
+- a candidate that misses the 90-minute correctness or latency gate is cut rather than used only on a frozen frame;
+- each browser submits only its own selected local frame;
+- live candidate pairs feed provisional scoring only; they never declare or lock
+  the battle winner;
+- freeze/finalisation selects fresh stable evidence for the authoritative final
+  path and prevents late live work from replacing it;
+- the existing Node room service owns authoritative pairing, backpressure, and
+  locked-result broadcast; the Python inference service remains stateless.
 
 ## 20. Webcam-like human calibration frames
 
@@ -588,6 +656,23 @@ The hackathon should load existing checkpoints or train small heads over cached 
 
 Detection locates evidence and establishes judgeability; it never directly determines fashion quality.
 
+- [x] The detection boundary between provisional live estimates and
+  authoritative final scoring is documented.
+- [ ] Final-frame capture, identity, freshness, and late-result rejection are
+  implemented and verified on both clients.
+
+During an active battle, detection supplies the newest valid synchronised pair to
+the fast path at approximately `1 FPS`; any resulting number is only a
+provisional live estimate. At freeze/finalisation, detection instead preserves
+the best fresh stable pair, or a short verified burst, for the most accurate
+configured scoring path. Once finalisation begins, later live candidates cannot
+replace that evidence or overwrite the locked result.
+
+The live range, smoothing, final-result, retry, and continuity rules belong to
+the dedicated [`scoring-spec.md`](scoring-spec.md). Detection reports frame
+quality, visibility, freshness, and garment evidence; it does not clamp scores or
+decide whether a live estimate is close enough to the final result.
+
 ```ts
 type GarmentCategory =
   | "top"
@@ -644,7 +729,7 @@ This low-capacity combiner is appropriate for 500–1,000 decisions. Direct unre
 
 ## 23. VLM and temporal-video boundary
 
-At battle completion, an image-capable VLM may analyse the best synchronised pair or a short three-frame burst. Its structured response should contain component quality, whole-outfit coordination, body-aware fit, frame quality and visible clothing observations.
+At battle completion, an image-capable VLM may analyse the best synchronised pair or a short three-frame burst. Its structured response should contain component quality, whole-outfit coordination, body-aware fit, a holistic diagnostic score, frame quality and visible clothing observations. The holistic value is not added to the fallback's deterministic 45/30/25 score.
 
 The VLM prompt must prohibit assessment of faces, attractiveness, body type, perceived gender, brand value and popularity. The VLM is one expert and the explanation layer; it does not overwrite the application-owned deterministic combiner.
 
@@ -655,12 +740,18 @@ Do not run a large VLM on the full webcam frame rate:
         |
         +--> local pose/framing detection at approximately 10 FPS
         |
-        +--> newest paired scoring sample at approximately 0.5–1 FPS
+        +--> stable local candidates retained briefly in memory
                               |
-                       maximum one in flight
+                        freeze/final trigger
                               |
-                     busy tick is discarded
+                server pairs newest fresh A/B samples
+                              |
+                  one VLM request per room in flight
 ```
+
+The later learned scorer may consume paired samples at approximately `1 FPS`.
+The VLM fallback is freeze/final by default; `2–3 second` VLM polling is optional
+experimentation only, and busy or stale work is discarded rather than queued.
 
 StreamingVLM is deferred. The published [StreamingVLM](https://proceedings.iclr.cc/paper_files/paper/2026/hash/6445dd88ebb9a6a3afa0b126ad87fe41-Abstract-Conference.html) architecture is aimed at stable understanding of effectively infinite video and depends on streaming-specific supervised fine-tuning. Revisit it for continuous commentary, garment-movement analysis or long-session memory, not for the initial slowly changing outfit state.
 
@@ -679,7 +770,10 @@ Stop source-expert work if the data cannot be cleaned and split safely. Do not i
 
 ## 25. Production runtime direction
 
-Python is appropriate for the hackathon inference service. At the intended 0.5–1 paired scoring requests per second, image preparation and model/GPU latency matter more than Python orchestration overhead.
+Python is appropriate for the hackathon inference service. At the learned
+scorer's intended approximately one paired scoring request per second, image
+preparation and model/GPU latency matter more than Python orchestration overhead.
+The VLM fallback ordinarily runs only at freeze/finalisation.
 
 After the model is validated, production may export stable models to ONNX and benchmark TensorRT or another optimised runtime. C++ is useful for measured bottlenecks such as GPU-native decode/preprocessing, buffer reuse, tight latency, high concurrency or edge deployment. It is not necessary to rewrite the browser or orchestration layer in C++: browser WebRTC and codecs already execute in native browser code, while the application samples frames independently for inference.
 

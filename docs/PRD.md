@@ -28,10 +28,12 @@ This checklist is the high-level source of truth for specification and implement
 - [x] Social weak supervision plus target-audience A/B calibration is documented as the current ML direction.
 - [ ] Target audience is defined precisely enough to recruit representative judges.
 - [x] Initial CV detection specification is documented in [`docs/specs/cv-detection.md`](specs/cv-detection.md).
+- [x] Provisional live-score ranges and authoritative final-score behaviour are documented in [`docs/specs/scoring-spec.md`](specs/scoring-spec.md).
 - [ ] CV detection, frame-quality, and canonical-cropping specification is finalised and validated.
 - [ ] Instagram and Depop data-acquisition and residual-construction specification is finalised.
 - [ ] Final scoring, calibration, draw, and displayed-score behaviour is decided.
-- [ ] Inference ownership, frame transport, and deployment architecture is decided.
+- [x] Hackathon inference ownership and frame transport are decided.
+- [ ] Deployment architecture is decided.
 
 ### Implementation status
 
@@ -42,15 +44,27 @@ This checklist is the high-level source of truth for specification and implement
 - [x] WebRTC local and remote video-feed handling is implemented.
 - [ ] The complete two-laptop flow is verified on the intended HTTPS demo environment.
 - [x] Video-frame capture and latest-frame backpressure are implemented.
-- [x] Battle UI supports placeholder scores, winner state, score freezing, copying the room code, and leaving.
+- [x] Battle UI supports framing readiness, finalisation states, authoritative
+  results, copying the room code, and leaving without fabricated scores.
 - [x] Person/pose detection and frame-quality gating are implemented.
 - [x] Canonical padded outfit cropping is implemented, with feet treated as optional evidence.
+- [x] A typed server-side garment-perception API and Grounding DINO baseline adapter are implemented and smoke-tested on one full-body image.
+- [x] Grounding DINO is rejected as the live garment runtime after a measured approximately 10.6-second CPU inference.
+- [x] RF-DETR-Seg Small is selected as the only time-boxed live garment-perception candidate, with an explicit pass/fail gate.
+- [ ] RF-DETR-Seg meets the live latency and correctness gate on representative webcam crops from the intended demo hardware.
+- [ ] Passing garment perception updates the live battle at approximately 1 FPS with one inference operation in flight and no queued frames.
 - [ ] A frozen visual-encoder baseline is implemented and evaluated.
 - [ ] A pairwise scoring head is implemented and evaluated.
+- [ ] The live battle displays labelled provisional score ranges from the fast scoring path rather than presenting an approximate point score as final.
+- [x] Battle finalisation runs the configured VLM path, broadcasts exact scores
+  and the winner or draw to both players, and locks the result against late work.
+- [ ] Live-to-final range coverage, score error, leader reversals, and transition behaviour are verified on representative webcam battles.
 - [ ] Instagram residual labels and expert model are implemented.
 - [ ] Depop residual labels and expert model are implemented.
 - [ ] Target-audience A/B labelling dataset is collected.
 - [ ] Real ML inference service is implemented.
+- [x] The placeholder score generator is removed; pre-finalisation UI shows
+  framing/readiness rather than invented numeric scores.
 - [ ] Live inference replaces the placeholder score generator.
 
 ### Verification status
@@ -151,15 +165,45 @@ The current prototype is the baseline and is expected to be close to the final h
 
 ### Result experience
 
-The current score and winner treatment may be used as the prototype presentation, but the final result behaviour depends on unresolved product and ML decisions.
+The hackathon product uses **both** a lightweight live estimate and a more
+accurate final result. They must be visually and semantically distinct.
 
-**TBD:**
+During the battle, each player sees a smoothed integer score range such as
+`72–82`, persistently labelled **Live estimate** or **Provisional**. The interface
+may say who is currently ahead or that the battle is too close to call, but it
+must not declare a winner. The fast path starts at approximately one comparison
+per second, holds the last valid range when work is skipped, and does not block
+the video experience.
 
-- continuous score, final result, or both;
-- absolute FIT scores versus a head-to-head winner;
-- how and when a battle ends;
-- how much reasoning or confidence to show;
-- how to communicate poor framing or an outfit that is not sufficiently visible.
+The initial range is the smoothed live estimate plus or minus five points. Tune
+that width against the final scorer so at least 80% of representative per-player
+final scores land inside the last live range. The full range may be widened from
+ten to at most sixteen points. If useful coverage still requires a wider range,
+remove the live numbers and retain only a qualitative current-leader treatment.
+Do not imply that the range is a calibrated confidence interval.
+
+When the battle is frozen or ended, both clients enter **Analysing final result**.
+The server scores the best fresh synchronised pair, or a verified short burst,
+using the most accurate configured path. It then broadcasts exact one-decimal
+scores and the final winner or draw to both clients and locks the result. Late
+live responses cannot change it.
+
+The accurate final score is not clamped to the previous live range. An
+out-of-range result is revealed truthfully, described as an adjusted estimate,
+and recorded for calibration. If final analysis fails or the images cannot be
+judged, the product keeps the prior value labelled as an estimate, offers a
+retry, and does not turn it into a final winner.
+
+The detailed smoothing defaults, response states, continuity targets, and
+implementation checklist live in
+[`docs/specs/scoring-spec.md`](specs/scoring-spec.md).
+
+**Still TBD:**
+
+- the automatic or player-triggered battle-ending mechanic;
+- the measured final draw threshold;
+- how much final reasoning or calibrated confidence to show; and
+- the exact retry/recapture interaction for poor framing or an outfit that is not sufficiently visible.
 
 ---
 
@@ -246,6 +290,18 @@ latest outfit frame
 The body-aware branch may assess visible garment alignment, sleeve and trouser length, layering, silhouette balance and overall proportions. It must not score body shape, facial appearance, attractiveness, gender presentation or other personal characteristics. Face information is excluded from the competitive score.
 
 Bounding-box detection is sufficient for locating initial garment components. Segmentation should be evaluated later for measurements that depend on garment boundaries, layering and silhouette.
+
+#### Live garment perception decision
+
+Garment-category recognition is useful to the hackathon only when it updates during the live battle. A result produced only after freezing the battle is out of scope for this branch.
+
+The implemented Grounding DINO Tiny baseline took approximately 10.6 seconds for one image on the CPU-only development environment and is therefore rejected as the live runtime. Keep it as a diagnostic baseline only.
+
+Time-box one replacement attempt to **90 minutes** using the Fashionpedia-trained [`resoa/garment-detector-seg`](https://huggingface.co/resoa/garment-detector-seg) RF-DETR-Seg Small checkpoint. The checkpoint model card declares its weights Apache 2.0. Before integration, pin its revision and checksum and record the model, architecture, and Fashionpedia attribution and licence notices.
+
+The replacement passes only if it maps into the reduced FITTED taxonomy and sustains approximately one result per second on the intended demo hardware over a 15–20 crop gate set without stalling video. The client or coordinator permits one garment request in flight, discards busy ticks, and retains the latest valid boxes between updates.
+
+If the candidate misses the latency, correctness, licensing-provenance, or 90-minute delivery gate, remove live garment categorisation from the hackathon MVP. Do not replace it with a frozen-only garment result. Whole-outfit scoring and pose/frame-quality detection continue without component detections.
 
 #### Initial deterministic weighting
 
@@ -346,6 +402,43 @@ Label interpretation:
 - **Too close** → draw or soft target of `0.5`;
 - **Cannot judge** → exclude from preference training and retain as a frame-quality example.
 
+#### Labelling workflow
+
+Collect the overall preference before asking the judge to explain it. Showing detailed scoring categories first may anchor the judge to the prototype's weighting scheme instead of capturing their genuine overall preference.
+
+Every comparison uses this primary question:
+
+```text
+Which outfit is better styled as a complete look?
+
+A wins | B wins | Too close | Cannot judge
+```
+
+The overall A/B decision is the primary training target for the final pairwise weighting function. `Too close` and `Cannot judge` remain valid answers and judges must not be forced to select a winner.
+
+After an **A wins** or **B wins** decision, comparisons selected for additional annotation ask the optional follow-up:
+
+```text
+What most influenced your choice? Select up to two.
+
+Individual pieces | Outfit coordination | Fit and proportion
+Colour | Layering | Other
+```
+
+Reason tags support explanations, dataset analysis and debugging. They must not be treated as sufficient evidence for learning numerical weights because they identify a reported reason, not its magnitude or the contribution of competing factors.
+
+Collect direct dimension judgements on approximately **20–30% of comparisons**, sampled across clear, close and robustness pairs:
+
+| Dimension | Allowed answers |
+|---|---|
+| Component quality | A / B / Equal / Cannot judge |
+| Whole-outfit coordination | A / B / Equal / Cannot judge |
+| Garment fit and proportion | A / B / Equal / Cannot judge |
+
+These dimension judgements align with the three visual score groups and are used to train or validate the individual scoring branches. The overall A/B decision remains the supervision used to fit the final combination of branch outputs.
+
+Do not require judges to rate every top, bottom, shoe and accessory in the main workflow. Detailed garment-level annotation is expensive and likely to be inconsistent, so it should be limited to a small diagnostic subset if component-level errors need investigation.
+
 Important evaluation pairs should receive multiple independent judgements. Rater cohort and fashion-engagement information should be retained so the team can measure whether different parts of the target audience disagree.
 
 Pair selection should progress from random coverage to active learning: prioritise comparisons where the experts disagree, the current model is near 50/50, or additional labels would improve coverage.
@@ -377,19 +470,26 @@ Use the prompt: **“Which outfit is better styled as a complete look? Judge the
 
 Randomise left/right placement and build train, validation and test splits by person, outfit and capture session before constructing pairs. An image or adjacent frame from the same outfit must never cross split boundaries. Important validation and test pairs should receive multiple independent ratings so inter-rater agreement and the realistic model ceiling can be measured.
 
-Optional reason tags may capture coordination, proportions, individual pieces, layering and colour. They should be collected on only a subset of decisions to avoid slowing the primary A/B task. `Cannot judge` labels train frame-quality rejection; they do not participate in preference training.
+Reason tags and dimension judgements should be collected only on their selected subsets to keep the primary task fast. `Cannot judge` labels train frame-quality rejection; they do not participate in preference training.
 
 This dataset calibrates a low-capacity pairwise combiner over frozen expert outputs. It is not large enough to train or fully fine-tune a visual encoder from scratch.
 
 ### VLM role
 
-For the hackathon, an image-capable VLM analyses the best synchronised frame pair when a battle is frozen or finalised. It returns structured component-quality, whole-outfit coordination, body-aware fit, frame-quality and explanation fields. The application combines numerical signals deterministically and may use the VLM explanation in the final result experience.
+For the hackathon, an image-capable VLM analyses the best synchronised frame pair when a battle is frozen or finalised. It returns structured component-quality, whole-outfit coordination, body-aware fit, holistic, frame-quality and explanation fields. The fallback's public score uses only the deterministic 45/30/25 dimensions; the holistic value is retained for diagnostics and as a candidate feature for the later learned combiner so it is not double-counted. The application may use the VLM explanation in the final result experience.
 
-The VLM should not continuously process the 30 FPS webcam stream. Live video remains independent; the comparison service samples the newest paired frames at approximately 0.5–1 FPS, permits one request in flight and discards stale work. A final three-frame burst may be used to reduce sensitivity to a single pose.
+The VLM's single `componentQuality` value is a fallback approximation. The final component branch remains the garment-aware calculation above, using per-component style, category importance, detection confidence, and visibility.
+
+Use **Gemini 3.6 Flash** for the hackathon's paired-image VLM fallback. Keep the provider boundary replaceable, but defer broad model comparison until after the hackathon unless Gemini blocks delivery.
+
+The VLM should not continuously process the 30 FPS webcam stream. Live video remains independent; the VLM fallback uses the newest fresh pair when a battle is frozen or finalised, permits one request per room in flight and discards stale work. A final three-frame burst may be used to reduce sensitivity to a single pose. The later learned scorer, not the VLM fallback, is responsible for approximately 1 FPS live scoring. Periodic VLM polling every 2–3 seconds is optional experimentation only.
 
 Streaming-video VLMs are a post-hackathon investigation for continuous commentary, garment movement or long-session memory. They are not required for outfit scoring, where the visual state changes slowly relative to the video frame rate.
 
 ### Final FITTED scoring function
+
+The executable runtime contract and its remaining implementation checklist live in
+[`docs/specs/scoring-spec.md`](specs/scoring-spec.md).
 
 For a human-labelled pair, the calibration model compares the source-expert predictions:
 
@@ -420,6 +520,12 @@ FITTED(A) =
 P(A wins) = sigmoid((FITTED(A) - FITTED(B)) / temperature)
 ```
 
+The terms above are transformed model features, not an assumption that every raw
+expert naturally produces a comparable `0..100` value. The trained scoring
+artifact must version each expert's fitted centring, scaling, and clipping (or an
+equivalent transform), and live inference must apply those exact transforms.
+Calibration into a displayed `0..100` FITTED score is a separate output mapping.
+
 The target-audience comparisons learn the expert weights and calibrate the final decision boundary. They are not expected to teach the vision encoder fashion knowledge from scratch.
 
 Each source signal must be evaluated out of sample. Signals that do not improve agreement with held-out target-audience comparisons should receive no weight or be removed.
@@ -438,9 +544,9 @@ latest frame from Player B ─┘               ↓
                                              ↓
                                   trained experts and weights
                                              ↓
-                              scores + winner + win probability
+                         provisional score ranges + current edge
                                              ↓
-                                      smoothed UI result
+                                smoothed, labelled live estimate
 ```
 
 The live inference path must not require Instagram, Depop or any other training-data source to be available.
@@ -449,25 +555,39 @@ The live video frame rate must remain independent from the inference rate. The s
 
 Start at approximately **one comparison per second**. Increase the rate only if measured inference latency and hardware headroom allow it. The product does not need to classify every camera frame.
 
+Live inference may use a faster and less accurate subset of the final signals. It
+produces the provisional ranges defined in the result experience, not the final
+winner. Freeze/finalisation invokes the most accurate configured path and is the
+only operation that can publish and lock the authoritative exact result.
+
 ### Proposed inference output
+
+The next response revision must include an explicit phase. A live response
+contains per-player score ranges and a provisional leader; a final response
+contains exact scores, a winner or draw, and a finalisation ID. The example below
+shows the final variant; the complete union is defined in the scoring spec.
 
 ```json
 {
+  "phase": "final",
+  "finalisationId": "string",
   "modelVersion": "string",
   "playerAScore": 72.4,
   "playerBScore": 61.8,
   "winner": "player_a",
-  "winProbability": 0.74,
+  "winProbability": null,
   "breakdown": {
     "playerA": {
       "componentQuality": 70.8,
       "outfitCoordination": 78.1,
-      "bodyFit": 69.5
+      "bodyFit": 69.5,
+      "vlmHolistic": 74.0
     },
     "playerB": {
       "componentQuality": 64.2,
       "outfitCoordination": 58.9,
-      "bodyFit": 62.7
+      "bodyFit": 62.7,
+      "vlmHolistic": 63.5
     }
   },
   "frameQuality": {
@@ -507,7 +627,7 @@ Exact acceptance thresholds remain **TBD** until a baseline has been measured.
 - Do Instagram and Depop experts add independent out-of-sample signal?
 - Does visual style momentum add useful signal after the first two experts?
 - Is full encoder fine-tuning eventually required?
-- How will scores be calibrated and stabilised over time?
+- What final score mapping, live-band width, and draw threshold meet the measured calibration and continuity targets?
 - How frequently should inference run?
 - How will the system exclude face and body-type preference while still measuring garment fit and styling proportions?
 - How will poor framing or incomplete outfit visibility be detected?
@@ -536,6 +656,7 @@ Add a small Python inference service with:
 - FastAPI;
 - PyTorch and Transformers;
 - `POST /v1/compare` for a pair of images;
+- `POST /v1/garments` for a canonical outfit crop when the live garment gate passes;
 - `GET /health` for demo readiness;
 - models loaded once at service startup;
 - no database and no retained frames for the prototype.
@@ -549,37 +670,38 @@ The hackathon inference service should combine, in priority order:
 
 The VLM is used at battle completion for holistic assessment and explanation. A StreamingVLM deployment, continuous 30 FPS model inference, full visual-encoder fine-tuning and production C++/TensorRT optimisation are explicitly deferred until after the scoring concept is validated.
 
-Initially, the host browser can capture the latest local and remote video frames, send them together to `/v1/compare`, and relay the resulting battle state to the guest through the existing room connection. This avoids duplicate inference and guarantees that each result is based on one explicit image pair.
+Each browser selects only its own newest stable local crop, encodes it as WebP at
+up to 640 pixels wide, and submits it with sample and capture-time metadata. The
+Node room coordinator derives room and player role from the socket, briefly
+retains only the newest valid submission per player, pairs submissions within a
+three-second collection window, invokes comparison once for the room, and
+broadcasts one authoritative result to both clients. Stale and superseded frames
+are discarded and prototype frames are not persisted.
 
-This coordinator approach must be tested for asymmetric WebRTC image quality. If it materially biases results, move to a design where each player sends their own local frame and the inference service pairs the latest submissions by room.
+The existing Node room service owns pairing and locked battle-result state; the
+Python inference service is stateless. Browser clients never own the
+authoritative comparison and never use a decoded remote WebRTC frame as the
+other player's scoring input.
 
 ```text
-Laptop A ◄──────────── WebRTC video ────────────► Laptop B
-   │                                                 │
-   └──── Socket.IO rooms, signalling and results ────┘
-   │
-   │ paired, rate-limited frame samples
-   ▼
-Python inference service
-   │
-   ├── preprocessing and frame-quality checks
-   ├── frozen vision encoder
-   └── pairwise scoring head
+Laptop A <──────────── WebRTC video ────────────> Laptop B
+   | local selected frame                 local selected frame |
+   +----------------> server-side pairing coordinator <--------+
+                              |
+                      one fresh A/B pair
+                              v
+                    Python inference service
+                              |
+              preprocessing, VLM/scorer, result
+                              v
+                 authoritative broadcast to both
 ```
 
-### System design to determine
+### Remaining system design decisions
 
 **TBD:**
 
-- where ML inference runs: browser, shared server, separate ML service, or a hybrid;
-- whether each client submits its own frames or one client coordinates the comparison;
-- how frames reach inference: HTTP, WebSocket, WebRTC data channel, or another mechanism;
-- how two players' samples are paired into a fair comparison;
-- where room and battle state are owned;
-- whether a separate backend service is needed and, if so, its language and framework;
-- result delivery and synchronisation between both players;
-- retry, timeout, reconnection, and failure behaviour;
-- privacy rules for captured frames, including whether any images are retained;
+- the measured capture-time skew tolerance beyond the three-second collection deadline;
 - deployment and hosting approach for the demo;
 - whether STUN alone is sufficient or TURN is required for the intended environment;
 - observability needed to diagnose failures during the demo.
@@ -631,8 +753,8 @@ This list may be revisited after the MVP and nice-to-have scope are agreed.
 
 ## 10. Open Product Questions
 
-- Is the primary output a score, a winner, or both?
-- Is scoring continuous, frozen by a player, or finalised automatically?
+- Does a player freeze the battle, does a timer end it, or are both supported?
+- What final draw threshold is supported by target-audience labels?
 - What makes a battle fun enough to repeat?
 - What explanation should accompany a result?
 - What language should the product use to avoid presenting subjective taste as objective fact?
@@ -651,7 +773,8 @@ Only record choices here once the team has agreed to them.
 | UI direction | Continue from the current prototype | Decided for hackathon | Polish is allowed; no major redesign planned |
 | Live video | WebRTC | Current prototype choice | Reassess only if it blocks a reliable demo |
 | Signalling | Socket.IO | Current prototype choice | Used for rooms and WebRTC negotiation |
-| Result format | TBD | Open | Absolute score, head-to-head result, or both |
+| Result format | Provisional live ranges, then exact final scores and a winner or draw | Decided for hackathon | Live values are labelled estimates; only server finalisation can lock the verdict |
+| Live-to-final continuity | Calibrate the live band against the final scorer | Decided for hackathon | Start at ±5 points, target 80% coverage, widen to at most 16 total points, then fall back to qualitative live status rather than false precision |
 | ML target | Preference of the defined FITTED target audience | Current direction | Social popularity supplies weak supervision; audience judgements calibrate the target |
 | ML formulation | Source experts combined into a pairwise FITTED score | Current direction | Instagram and Depop first; style momentum later if useful |
 | Visual score composition | Component quality 45%, whole-outfit coordination 30%, body-aware fit 25% | Initial prototype decision | Deterministic defaults; learn constrained weights from target-audience labels later |
@@ -659,8 +782,11 @@ Only record choices here once the team has agreed to them.
 | Primary encoder | Benchmark DINOv2 Small and SigLIP 2 Base | Proposed | Use frozen embeddings; do not make full fine-tuning a hackathon dependency |
 | Training | Frozen encoder, source-specific experts, pairwise logistic combiner | Current direction | Human A/B labels learn expert weights and calibration |
 | Human labels | 200–400 webcam-like outfits and 500–1,000 target-audience A/B decisions | Initial plan | Split by person/outfit/session; repeat important evaluation pairs |
-| VLM role | Final holistic assessment and explanation | Current direction | Structured paired-image output; deterministic application-owned combiner |
+| VLM role | Final holistic assessment and explanation | Current direction | Holistic output is diagnostic in fallback; deterministic 45/30/25 public score avoids double-counting |
+| VLM fallback model | Gemini 3.6 Flash | Decided for hackathon | Prioritise integration and FITTED-specific verification over a broad provider bake-off |
 | StreamingVLM | Deferred | Decided for hackathon | Revisit for continuous commentary, garment movement or long-session memory |
-| Inference location | Separate Python service | Proposed | Keeps ML dependencies out of the working signalling server |
-| Frame transport | Paired HTTP request from the host | Proposed for first version | Revisit if remote-stream quality creates bias |
+| Live garment perception | RF-DETR-Seg Small, approximately 1 FPS | Time-boxed decision | One candidate, 90-minute gate; cut the feature if latency, correctness, or provenance fails; no frozen-only substitute |
+| Inference location | Separate stateless Python service | Implemented for hackathon | Keeps ML dependencies out of the working signalling server |
+| Frame transport | Per-client local-frame submission | Decided for hackathon | Each player submits only its own selected local crop |
+| Pairing authority | Existing Node room service | Implemented for hackathon | Derives host/guest roles, pairs local crops, and locks/broadcasts the result |
 | Nice-to-have scope | TBD | Open | Decide after core-flow validation |

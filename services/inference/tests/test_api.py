@@ -11,6 +11,7 @@ from fitted_inference.vlm import (
     VlmAssessment,
     VlmPairAssessment,
     VlmPlayerAssessment,
+    VlmProviderError,
     VlmProviderTimeoutError,
 )
 
@@ -226,6 +227,31 @@ def test_compare_maps_provider_timeout_to_gateway_timeout(monkeypatch) -> None:
 
     assert response.status_code == 504
     assert response.json()["detail"] == "provider timed out"
+
+
+def test_compare_maps_provider_failure_to_service_unavailable(monkeypatch) -> None:
+    class FailedProvider:
+        model_version = "fake-vlm"
+
+        async def assess(self, **_kwargs):
+            raise VlmProviderError("provider failed")
+
+    monkeypatch.setattr(
+        main_module,
+        "create_engine",
+        lambda _settings: InferenceEngine(provider=FailedProvider()),
+    )
+    image = valid_image_bytes()
+    files = {
+        "player_a": ("player-a.webp", image, "image/webp"),
+        "player_b": ("player-b.webp", image, "image/webp"),
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/v1/compare", data=COMPARISON_FORM, files=files)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "provider failed"
 
 
 def test_garment_health_reports_unconfigured_model() -> None:

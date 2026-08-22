@@ -43,10 +43,20 @@ see `.env.example`. The API validates actual image decodability before provider
 inference, never uses the VLM holistic diagnostic in the deterministic 45/30/25
 score, and leaves win probability unset pending calibration.
 
-`src/fitted_inference/scoring.py` defines the dependency-free runtime contract for
-the deterministic visual baseline and a versioned pairwise scoring artifact. It is
-not wired into the image endpoint until real expert outputs are available. See
-`docs/specs/scoring-spec.md` for the training and evaluation checklist.
+`src/fitted_inference/scoring.py` supplies the deterministic 45/30/25 calculation
+used by the final VLM path and defines a versioned pairwise scoring artifact for
+the later learned scorer. The learned pairwise head is not wired into the image
+endpoint until real expert outputs are available. See `docs/specs/scoring-spec.md`
+for the training and evaluation checklist.
+
+The real-provider smoke test is deliberately excluded from the default suite. To
+run it with two consented JPEG/WebP outfit images, set `FITTED_RUN_GEMINI_SMOKE=1`,
+`FITTED_SMOKE_PLAYER_A_PATH`, and `FITTED_SMOKE_PLAYER_B_PATH` alongside the
+Gemini variables above, then run:
+
+```powershell
+npm run test:api -- -k real_gemini_pair
+```
 
 ## Garment perception
 
