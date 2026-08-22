@@ -50,7 +50,20 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
     rtc.connectionState === "connected" && !scoring.isBusy && !scoring.isLocked,
   );
   const finalResult = scoring.state.phase === "final" ? scoring.state.result : null;
-  const displayedScores = finalResult ? scoresForRole(finalResult, role) : null;
+  const displayedScores = finalResult
+    ? scoresForRole(finalResult, role)
+    : scoring.provisionalScores
+      ? role === "host"
+        ? {
+            localScore: scoring.provisionalScores.playerA,
+            remoteScore: scoring.provisionalScores.playerB,
+          }
+        : {
+            localScore: scoring.provisionalScores.playerB,
+            remoteScore: scoring.provisionalScores.playerA,
+          }
+      : null;
+  const scoresAreProvisional = !finalResult && scoring.provisionalScores !== null;
   const localScore = displayedScores?.localScore ?? null;
   const remoteScore = displayedScores?.remoteScore ?? null;
   const scoreError = scoring.requestError
@@ -127,6 +140,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
             label="YOU" number={role === "host" ? "01" : "02"} side="p1"
             stream={camera.stream} videoRef={localVideoRef} muted
             score={localScore} analysing={scoring.isBusy}
+            provisionalScore={scoresAreProvisional}
             waitingText={camera.status === "requesting" ? "OPENING CAMERA" : "CAMERA OFF"}
             detection={{ state: outfitDetection.detectorState, result: outfitDetection.result }}
             garmentCategories={garmentPerception.localCategories}
@@ -136,6 +150,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
             label="THEM" number={role === "host" ? "02" : "01"} side="p2"
             stream={rtc.remoteStream} videoRef={remoteVideoRef} muted={false}
             score={remoteScore} analysing={scoring.isBusy}
+            provisionalScore={scoresAreProvisional}
             waitingText={
               rtc.connectionState === "connected"
                 ? "OPPONENT CAMERA OFF"

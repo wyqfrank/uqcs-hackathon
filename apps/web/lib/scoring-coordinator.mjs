@@ -627,7 +627,7 @@ export class ScoringCoordinator {
         roomId,
         state,
         "frame_unavailable",
-        "Neither player produced a complete fresh frame pair. Reframe and retry.",
+        "Could not capture both camera feeds. Check both cameras and retry.",
       );
       return;
     }

@@ -708,6 +708,7 @@ button:focus-visible, input:focus-visible {
   animation: score-in .18s steps(3, end);
 }
 .score-block:not(.is-active) strong { color: var(--text-ghost); }
+.score-block.is-provisional > span { color: var(--ko); }
 
 .score-track {
   position: relative;

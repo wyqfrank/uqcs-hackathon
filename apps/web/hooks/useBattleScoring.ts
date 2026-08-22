@@ -7,7 +7,9 @@ import type { OutfitDetectionController } from "@/lib/cv/types";
 import {
   countdownSeconds,
   isCurrentScoreResult,
+  provisionalScoresForRound,
   type BattleScoringState,
+  type ProvisionalScorePair,
   type ScoreResult,
 } from "@/lib/scoring";
 
@@ -76,10 +78,12 @@ export function useBattleScoring(
     playerBReady: false,
   });
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [provisionalScores, setProvisionalScores] = useState<ProvisionalScorePair | null>(null);
   const activeFinalisationRef = useRef<string | null>(null);
   const submittedRequestsRef = useRef(new Set<string>());
   const readinessRef = useRef({ playerAReady: false, playerBReady: false });
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const captureCurrentCandidate = detection.captureCurrentCandidate;
   const consumeBestCandidate = detection.consumeBestCandidate;
   const detectorStateRef = useRef(detection.detectorState);
   detectorStateRef.current = detection.detectorState;
@@ -105,15 +109,17 @@ export function useBattleScoring(
       countdownTimerRef.current = null;
     };
 
-    const submitNewestCandidate = async (event: FrameRequest) => {
+    const submitCurrentFrame = async (event: FrameRequest) => {
       if (submittedRequestsRef.current.has(event.requestId)) return;
       submittedRequestsRef.current.add(event.requestId);
       const localDeadline = performance.now() + Math.max(0, event.deadlineAt - event.serverNow);
 
-      let candidate = consumeBestCandidate();
+      let candidate = await captureCurrentCandidate();
+      if (!candidate) candidate = consumeBestCandidate();
       while (!candidate && active && performance.now() < localDeadline) {
         await wait(CANDIDATE_POLL_MS);
-        candidate = consumeBestCandidate();
+        candidate = await captureCurrentCandidate();
+        if (!candidate) candidate = consumeBestCandidate();
       }
       if (!active || activeFinalisationRef.current !== event.finalisationId) {
         candidate?.crop.close();
@@ -126,7 +132,7 @@ export function useBattleScoring(
           burstIndex: event.burstIndex,
           reason: detectorStateRef.current === "unavailable"
             ? "detector_unavailable"
-            : "no_stable_frame",
+            : "no_current_frame",
         });
         return;
       }
@@ -185,11 +191,13 @@ export function useBattleScoring(
       const localDeadline = performance.now() + Math.max(0, event.endsAt - event.serverNow);
       const updateCountdown = () => {
         if (!active) return;
+        const secondsRemaining = countdownSeconds(localDeadline, performance.now());
         setState({
           phase: "countdown",
           roundId: event.roundId,
-          secondsRemaining: countdownSeconds(localDeadline, performance.now()),
+          secondsRemaining,
         });
+        setProvisionalScores(provisionalScoresForRound(event.roundId, secondsRemaining));
       };
       updateCountdown();
       countdownTimerRef.current = setInterval(updateCountdown, COUNTDOWN_TICK_MS);
@@ -199,6 +207,7 @@ export function useBattleScoring(
       stopCountdown();
       activeFinalisationRef.current = null;
       submittedRequestsRef.current.clear();
+      setProvisionalScores(null);
       setState({ phase: "waiting_ready", ...readinessRef.current });
     };
     const onStarted = (event: FinalisationStarted) => {
@@ -214,7 +223,7 @@ export function useBattleScoring(
         event.battleId !== roomId
         || event.finalisationId !== activeFinalisationRef.current
       ) return;
-      void submitNewestCandidate(event);
+      void submitCurrentFrame(event);
     };
     const onAnalysing = (event: FinalisationAnalysing) => {
       if (
@@ -229,6 +238,7 @@ export function useBattleScoring(
       stopCountdown();
       activeFinalisationRef.current = result.finalisationId;
       setRequestError(null);
+      if (result.phase === "final") setProvisionalScores(null);
       setState(
         result.phase === "final"
           ? { phase: "final", result }
@@ -254,7 +264,7 @@ export function useBattleScoring(
       socket.off("score-finalisation-analysing", onAnalysing);
       socket.off("score-result", onResult);
     };
-  }, [consumeBestCandidate, roomId, socket]);
+  }, [captureCurrentCandidate, consumeBestCandidate, roomId, socket]);
 
   const finalise = useCallback(() => {
     if (
@@ -273,6 +283,7 @@ export function useBattleScoring(
 
   return {
     state,
+    provisionalScores,
     requestError,
     finalise,
     isBusy: state.phase === "collecting" || state.phase === "analysing",

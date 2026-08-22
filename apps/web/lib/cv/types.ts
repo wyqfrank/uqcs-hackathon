@@ -90,6 +90,6 @@ export type WorkerResponse =
 export type OutfitDetectionController = {
   result: OutfitDetectionResult | null;
   detectorState: DetectorState;
+  captureCurrentCandidate(): Promise<CandidateFrame | null>;
   consumeBestCandidate(): CandidateFrame | null;
 };
-

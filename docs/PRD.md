@@ -45,7 +45,7 @@ This checklist is the high-level source of truth for specification and implement
 - [x] The complete two-laptop flow is verified on the intended HTTPS demo environment.
 - [x] Video-frame capture and latest-frame backpressure are implemented.
 - [x] Battle UI supports framing readiness, finalisation states, authoritative
-      results, copying the room code, and leaving without fabricated scores.
+      results, copying the room code, and a clearly labelled demo-only live estimate.
 - [x] Both score-ready players start one server-authoritative 30-second round;
       disconnects cancel it and either player can finalise early.
 - [x] Person/pose detection and frame-quality gating are implemented.
@@ -60,13 +60,15 @@ This checklist is the high-level source of truth for specification and implement
 - [ ] Passing garment perception updates the live battle at approximately 1 FPS with one inference operation in flight and no queued frames.
 - [ ] A frozen visual-encoder baseline is implemented and evaluated.
 - [ ] A pairwise scoring head is implemented and evaluated.
-- [ ] The live battle displays labelled provisional score ranges from the fast
-      scoring path. Not implemented: no range, `Live estimate` or `Provisional`
-      treatment exists in the battle UI yet.
+- [x] During the countdown, both clients display the same bounded, seeded demo
+      scores labelled `LIVE ESTIMATE`; these values never determine the winner.
+- [ ] The live battle displays calibrated provisional score ranges from the
+      learned fast scoring path.
 - [x] Battle finalisation runs the configured VLM path, broadcasts exact scores
       and the winner or draw to both players, and locks the result against late work.
-- [x] Finalisation requests three fresh paired local crops approximately 750 ms
-      apart and submits the available one-to-three complete pairs in one VLM call.
+- [x] Finalisation captures three current paired local frames approximately 750 ms
+      apart using the latest valid crop geometry, with stable-candidate fallback,
+      and submits the available one-to-three complete pairs in one VLM call.
 - [ ] Live-to-final range coverage, score error, leader reversals, and transition behaviour are verified on representative webcam battles.
 - [ ] Instagram residual labels and expert model are implemented.
 - [ ] Depop residual labels and expert model are implemented.
@@ -75,10 +77,11 @@ This checklist is the high-level source of truth for specification and implement
       scoring provider behind a typed engine boundary, gated on the package's
       `vlm` extra and a configured API key. It reports `ready` only when a
       provider is configured and raises rather than inventing a score.
-- [x] The placeholder score generator is removed; pre-finalisation UI shows
-      framing/readiness rather than invented numeric scores.
+- [x] The demo-only live score generator is bounded to `55..85`, deterministic
+      for a shared round/time slice, and explicitly labelled as an estimate.
 - [ ] The live (pre-finalisation) path produces model-derived scores. It currently
-      runs garment perception only; live numeric scoring is not implemented.
+      runs garment perception plus a demo-only numeric estimate; learned live
+      scoring is not implemented.
 
 ### Verification status
 
@@ -88,7 +91,7 @@ Last verified against the working tree on 2026-08-22.
 - [x] Production build passes (`npm run build`).
 - [x] Signalling smoke test passes (`npm run test:signaling`) — create, join,
       capacity, SDP relay, and reconnect.
-- [x] Web unit tests pass: 24 tests across 7 files covering scoring, garment
+- [x] Web unit tests pass: 28 tests across 7 files covering scoring, garment
       perception, frame capture, and the CV modules.
 - [x] Scoring coordinator tests pass: 17 tests covering readiness, countdown,
       burst capture, fallback, backpressure, stale work, and reconnect replay.
@@ -229,12 +232,15 @@ Canonical control and state labels currently shipped: `START CAMERA` /
 The hackathon product uses **both** a lightweight live estimate and a more
 accurate final result. They must be visually and semantically distinct.
 
-During the battle, each player sees a smoothed integer score range such as
-`72–82`, persistently labelled **Live estimate** or **Provisional**. The interface
-may say who is currently ahead or that the battle is too close to call, but it
-must not declare a winner. The fast path starts at approximately one comparison
-per second, holds the last valid range when work is skipped, and does not block
-the video experience.
+During the hackathon demo, each player sees a one-decimal point value persistently
+labelled **Live estimate**. It is a seeded, deterministic presentation value in
+the `55..85` range, shared across both clients and updated every three seconds.
+It is not model output, does not declare a winner, and is replaced rather than
+blended when the authoritative final result arrives.
+
+The later learned fast path should replace that demo value with a smoothed score
+range such as `72–82`, update at approximately one comparison per second, hold
+the last valid range when work is skipped, and never block the video experience.
 
 The initial range is the smoothed live estimate plus or minus five points. Tune
 that width against the final scorer so at least 80% of representative per-player
@@ -246,7 +252,7 @@ Do not imply that the range is a calibrated confidence interval.
 When both players are connected and locally score-ready, the server starts one
 30-second round. At zero, or when either player finalises early, both clients
 enter the same final capture path and then **Analysing final result**. The server
-requests three fresh paired crops approximately 750 ms apart, scores the
+captures three current paired crops approximately 750 ms apart, scores the
 available one-to-three complete pairs in one request, broadcasts exact
 one-decimal scores and the final winner or draw to both clients, and locks the
 result. Late live responses cannot change it.
@@ -596,6 +602,9 @@ Each source signal must be evaluated out of sample. Signals that do not improve 
 
 Social-platform information is used only for offline dataset construction and training.
 
+The current hackathon UI uses a clearly labelled seeded demo estimate during the
+countdown. The learned live path below remains the intended replacement.
+
 During a live battle:
 
 ```text
@@ -732,10 +741,12 @@ The hackathon inference service should combine, in priority order:
 
 The VLM is used at battle completion for holistic assessment and explanation. A StreamingVLM deployment, continuous 30 FPS model inference, full visual-encoder fine-tuning and production C++/TensorRT optimisation are explicitly deferred until after the scoring concept is validated.
 
-Each browser selects only its own newest stable local crop for three server-owned
-capture slots at `0`, `750`, and `1500` ms, encodes each available crop as WebP
-at up to 640 pixels wide, and submits it with slot, sample, and capture-time
-metadata. The Node room coordinator derives room and player role from the socket,
+For each server-owned capture slot at `0`, `750`, and `1500` ms, each browser
+captures its current local video frame using the latest valid outfit crop bounds.
+If current-frame capture is temporarily unavailable, it falls back to the newest
+stable buffered crop. Each available crop is encoded as WebP at up to 640 pixels
+wide and submitted with slot, sample, and capture-time metadata. The Node room
+coordinator derives room and player role from the socket,
 retains only the newest valid submission for each role and slot, discards
 incomplete slots, and invokes comparison once with the available one-to-three
 complete pairs. Stale and superseded frames are discarded and prototype frames
@@ -870,7 +881,8 @@ Only record choices here once the team has agreed to them.
 | UI direction             | Continue from the current prototype                                      | Decided for hackathon      | Polish is allowed; no major redesign planned                                                                                                     |
 | Live video               | WebRTC                                                                   | Current prototype choice   | Reassess only if it blocks a reliable demo                                                                                                       |
 | Signalling               | Socket.IO                                                                | Current prototype choice   | Used for rooms and WebRTC negotiation                                                                                                            |
-| Result format            | Provisional live ranges, then exact final scores and a winner or draw    | Decided for hackathon      | Live values are labelled estimates; only server finalisation can lock the verdict                                                                |
+| Result format            | Labelled demo live estimates, then exact final scores and a winner or draw | Decided for hackathon | The bounded seeded estimate is presentation-only; only server finalisation can lock the verdict |
+| Live estimate            | Shared seeded values in `55..85`, updated every three seconds            | Implemented for demo       | Replace with calibrated learned ranges later; never use the demo value to determine the final winner |
 | Round lifecycle          | Start one server-owned 30-second round when both players are score-ready; either player may finalise early | Implemented for hackathon | Clients derive the display deadline from server timestamps and never independently finalise at zero |
 | Live-to-final continuity | Calibrate the live band against the final scorer                         | Decided for hackathon      | Start at ±5 points, target 80% coverage, widen to at most 16 total points, then fall back to qualitative live status rather than false precision |
 | ML target                | Preference of the defined FITTED target audience                         | Current direction          | Social popularity supplies weak supervision; audience judgements calibrate the target                                                            |

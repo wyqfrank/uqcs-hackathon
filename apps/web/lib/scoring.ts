@@ -80,6 +80,38 @@ export function countdownSeconds(deadline: number, now: number): number {
   return Math.max(0, Math.ceil((deadline - now) / 1000));
 }
 
+export type ProvisionalScorePair = {
+  playerA: number;
+  playerB: number;
+};
+
+const PROVISIONAL_MINIMUM = 55;
+const PROVISIONAL_MAXIMUM = 85;
+
+function seededUnit(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
+export function provisionalScoresForRound(
+  roundId: string,
+  secondsRemaining: number,
+): ProvisionalScorePair {
+  const timeSlice = Math.floor(Math.max(0, secondsRemaining) / 3);
+  const score = (role: "player_a" | "player_b") => {
+    const base = 62 + seededUnit(`${roundId}:${role}:base`) * 16;
+    const movement = (seededUnit(`${roundId}:${role}:${timeSlice}`) - 0.5) * 6;
+    return Math.round(
+      Math.max(PROVISIONAL_MINIMUM, Math.min(PROVISIONAL_MAXIMUM, base + movement)) * 10,
+    ) / 10;
+  };
+  return { playerA: score("player_a"), playerB: score("player_b") };
+}
+
 export function scoresForRole(result: FinalScoreResult, role: "host" | "guest") {
   return role === "host"
     ? { localScore: result.playerAScore, remoteScore: result.playerBScore }

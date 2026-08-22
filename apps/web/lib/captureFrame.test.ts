@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { encodeAndCloseImageBitmap } from "./captureFrame";
+import {
+  captureCurrentVideoCrop,
+  encodeAndCloseImageBitmap,
+  normalisedRectToPixels,
+} from "./captureFrame";
 
 describe("final scoring candidate encoding", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -40,5 +44,33 @@ describe("final scoring candidate encoding", () => {
 
     await expect(encodeAndCloseImageBitmap(image)).resolves.toBeNull();
     expect(image.close).toHaveBeenCalledOnce();
+  });
+
+  it("captures the current video image using the latest normalised outfit crop", async () => {
+    const image = { width: 960, height: 864, close: vi.fn() } as unknown as ImageBitmap;
+    const createBitmap = vi.fn(async () => image);
+    vi.stubGlobal("createImageBitmap", createBitmap);
+    const video = {
+      readyState: 2,
+      videoWidth: 1920,
+      videoHeight: 1080,
+    } as HTMLVideoElement;
+
+    await expect(captureCurrentVideoCrop(video, {
+      x: 0.25,
+      y: 0.1,
+      width: 0.5,
+      height: 0.8,
+    })).resolves.toBe(image);
+    expect(createBitmap).toHaveBeenCalledWith(video, 480, 108, 960, 864);
+  });
+
+  it("clamps crop geometry to the current video bounds", () => {
+    expect(normalisedRectToPixels(100, 80, {
+      x: -0.1,
+      y: 0.25,
+      width: 1.2,
+      height: 1,
+    })).toEqual({ x: 0, y: 20, width: 100, height: 60 });
   });
 });

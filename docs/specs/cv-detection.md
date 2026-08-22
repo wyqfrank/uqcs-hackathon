@@ -690,12 +690,12 @@ Detection locates evidence and establishes judgeability; it never directly deter
 - [ ] Final-frame capture, identity, freshness, and late-result rejection are
   implemented and verified on both clients.
 
-During an active battle, detection supplies the newest valid synchronised pair to
-the fast path at approximately `1 FPS`; any resulting number is only a
-provisional live estimate. At freeze/finalisation, detection instead preserves
-the best fresh stable pair, or a short verified burst, for the most accurate
-configured scoring path. Once finalisation begins, later live candidates cannot
-replace that evidence or overwrite the locked result.
+During the current hackathon round, detection gates readiness but does not
+produce the demo-only live estimate; that value is seeded presentation state.
+At finalisation, detection supplies the latest valid outfit crop geometry so each
+browser can crop its current local video frame for three timed slots. The newest
+stable buffered candidate is used only if current-frame capture fails. Late live
+candidates cannot overwrite the locked result.
 
 The live range, smoothing, final-result, retry, and continuity rules belong to
 the dedicated [`scoring-spec.md`](scoring-spec.md). Detection reports frame

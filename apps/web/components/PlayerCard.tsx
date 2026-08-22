@@ -18,6 +18,7 @@ export function PlayerCard({
   muted,
   score,
   analysing,
+  provisionalScore = false,
   waitingText,
   detection,
   garmentCategories = [],
@@ -30,6 +31,7 @@ export function PlayerCard({
   muted: boolean;
   score: number | null;
   analysing: boolean;
+  provisionalScore?: boolean;
   waitingText: string;
   garmentCategories?: GarmentCategory[];
   detection?: {
@@ -65,7 +67,12 @@ export function PlayerCard({
         )}
         <div className="corner corner-tl" /><div className="corner corner-tr" />
         <div className="corner corner-bl" /><div className="corner corner-br" />
-        <FittedScore score={score} active={analysing} side={side} />
+        <FittedScore
+          score={score}
+          active={analysing}
+          provisional={provisionalScore}
+          side={side}
+        />
         <GarmentCategoryChips categories={garmentCategories} />
       </div>
     </article>

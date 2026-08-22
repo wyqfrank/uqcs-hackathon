@@ -10,7 +10,9 @@ import {
 import { CandidateFrameBuffer } from "@/lib/cv/candidates";
 import { CV_CONFIG } from "@/lib/cv/config";
 import { detectorUnavailableResult } from "@/lib/cv/frame-quality";
+import { captureCurrentVideoCrop } from "@/lib/captureFrame";
 import type {
+  CandidateFrame,
   DetectorState,
   OutfitDetectionController,
   OutfitDetectionResult,
@@ -28,11 +30,16 @@ export function useOutfitDetection(
   const [result, setResult] = useState<OutfitDetectionResult | null>(null);
   const [detectorState, setDetectorState] = useState<DetectorState>("loading");
   const candidatesRef = useRef(new CandidateFrameBuffer());
+  const latestValidFrameRef = useRef<Pick<
+    CandidateFrame,
+    "quality" | "visibleRegions"
+  > & { cropBox: NonNullable<OutfitDetectionResult["cropBox"]> } | null>(null);
 
   useEffect(() => {
     const candidates = candidatesRef.current;
     if (!enabled) {
       candidates.clear();
+      latestValidFrameRef.current = null;
       setResult(null);
       setDetectorState("loading");
       return;
@@ -87,6 +94,13 @@ export function useOutfitDetection(
 
       inFlight = false;
       setResult(message.result);
+      if (message.result.scoreable && message.result.cropBox) {
+        latestValidFrameRef.current = {
+          cropBox: message.result.cropBox,
+          quality: message.result.quality,
+          visibleRegions: message.result.visibleRegions,
+        };
+      }
       if (!message.candidate) return;
       if (performance.now() - message.result.capturedAt > CV_CONFIG.maximumResultAgeMs) {
         message.candidate.close();
@@ -163,14 +177,33 @@ export function useOutfitDetection(
       if (callbackId !== null) video.cancelVideoFrameCallback(callbackId);
       worker.terminate();
       candidates.clear();
+      latestValidFrameRef.current = null;
     };
   }, [enabled, videoRef]);
+
+  const captureCurrentCandidate = useCallback(async (): Promise<CandidateFrame | null> => {
+    const video = videoRef.current;
+    const latest = latestValidFrameRef.current;
+    if (!video || !latest) return null;
+    const crop = await captureCurrentVideoCrop(video, latest.cropBox);
+    if (!crop) return null;
+    return {
+      capturedAt: performance.now(),
+      crop,
+      quality: latest.quality,
+      visibleRegions: latest.visibleRegions,
+    };
+  }, [videoRef]);
 
   const consumeBestCandidate = useCallback(
     () => candidatesRef.current.consumeBest(performance.now()),
     [],
   );
 
-  return { result, detectorState, consumeBestCandidate };
+  return {
+    result,
+    detectorState,
+    captureCurrentCandidate,
+    consumeBestCandidate,
+  };
 }
-

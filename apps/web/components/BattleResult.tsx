@@ -28,7 +28,7 @@ export function BattleResult({
       <div className="battle-result pending countdown-result" aria-live="polite">
         <span>ROUND LIVE</span>
         <strong className="battle-countdown">00:{seconds}</strong>
-        <p>Keep both fits framed. Final analysis begins automatically.</p>
+        <p>Live estimates update on the feeds. Final analysis begins automatically.</p>
       </div>
     );
   }

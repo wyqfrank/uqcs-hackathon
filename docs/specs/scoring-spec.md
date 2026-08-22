@@ -2,12 +2,14 @@
 
 **Status:** The server-authoritative 30-second round and one-to-three-pair final
 VLM burst are implemented and covered by automated tests. Real-provider,
-browser-visual, two-device, live provisional, training, and representative
-evaluation work remains pending.
+browser-visual, two-device, learned live scoring, training, and representative
+evaluation work remains pending. A labelled bounded demo estimate is implemented
+for the countdown and is never used by final scoring.
 
 This specification narrows the PRD's scoring direction into the first executable
-boundary. The hackathon uses provisional score ranges during a battle and exact,
-server-authoritative scores at finalisation. The target audience, measured draw
+boundary. The hackathon currently uses labelled seeded demo estimates during a
+battle and exact server-authoritative scores at finalisation. Calibrated learned
+live ranges remain the target. The target audience, measured draw
 threshold, final displayed-score calibration, and choice of frozen visual encoder
 remain unsettled.
 
@@ -17,7 +19,10 @@ remain unsettled.
   documented with initial display defaults and continuity targets.
 - [x] The phase-aware final/not-scoreable response contract is implemented and
   tested.
-- [ ] The provisional live-range UI is implemented and tested.
+- [x] A shared `55..85` demo estimate is displayed and explicitly labelled
+  `LIVE ESTIMATE`; it is deterministic per round/time slice and final scoring
+  never consumes it.
+- [ ] The learned provisional live-range UI is implemented and tested.
 - [x] Finalisation locks an exact server-authoritative result in the coordinator
   and both client roles map that result consistently.
 - [x] Both locally score-ready roles start one server-owned 30-second round, with
@@ -27,7 +32,7 @@ remain unsettled.
 - [ ] Live-to-final continuity targets are measured on representative webcam
   battles and the live display is tuned or reduced to the qualitative fallback.
 
-Automated verification on 2026-08-22 passes TypeScript typecheck, 24 web unit
+Automated verification on 2026-08-22 passes TypeScript typecheck, 28 web unit
 tests, 17 Node coordinator tests, 60 Python/API tests, Ruff, and the production
 build. The signalling smoke test could not be rerun while the user's existing
 Next dev server held the development lock; its prior passing status is unchanged.
@@ -119,8 +124,10 @@ been measured.
 
 When both players become locally score-ready, the server starts a 30-second
 countdown. At zero, or when either player finalises early, stop accepting live
-garment updates and collect three fresh synchronised slots approximately 750 ms
-apart. Enter **Analysing final result** with any one-to-three complete pairs and
+garment updates and capture three current synchronised slots approximately 750 ms
+apart using each browser's latest valid outfit crop geometry. A stable buffered
+crop is used only when current-frame capture fails. Enter **Analysing final
+result** with any one-to-three complete pairs and
 invoke the most accurate configured scoring path once. For the hackathon, this
 is the paired VLM fallback plus the application-owned deterministic dimension
 combiner unless a validated learned scorer replaces it.
@@ -198,10 +205,11 @@ are implemented; `live_provisional` remains planned.
 
 The paired-image VLM is the first working scoring fallback and the later final
 explanation layer. It is not the intended high-frequency live scorer. WebRTC
-continues at its normal frame rate, browser-side CV selects recent stable frames,
-and each browser submits only its own newest stable local snapshot for each final
-capture slot. A server-side coordinator pairs fresh A/B submissions and produces
-one authoritative result.
+continues at its normal frame rate, browser-side CV maintains the latest valid
+outfit crop geometry, and each browser captures only its own current local video
+frame for each final slot. A buffered stable crop is the fallback, not the normal
+path. A server-side coordinator pairs A/B submissions and produces one
+authoritative result.
 When the learned scorer is ready, it should own the approximately `1 FPS` live
 score while the VLM runs at freeze/finalisation or when that scorer is
 unavailable.
@@ -235,7 +243,8 @@ boundary remains provider-neutral so this decision can be revisited later.
 both locally score-ready -> server starts one 30-second round
   -> timer reaches zero or either player finalises early
   -> server requests paired slots at 0, 750, and 1500 ms
-  -> each browser chooses and submits only its newest stable local candidate
+  -> each browser captures its current local frame with the latest valid crop
+     geometry, falling back to its newest stable candidate only if capture fails
   -> coordinator derives identity, keeps the newest submission per role/slot,
      and discards incomplete slots
   -> retain chronological sample identities, assign a burst pair ID, and invoke
@@ -389,8 +398,8 @@ service remains stateless.
 
 #### Phase 4 — Paired browser integration
 
-- [x] Replace per-player placeholder inference with per-client submission of only
-  the newest valid local candidate.
+- [x] Capture each current local video frame with the latest valid outfit crop
+  geometry, with newest-stable-candidate fallback and no remote-video capture.
 - [x] Pair fresh A/B submissions in a server-side coordinator rather than
   capturing a remote WebRTC element in either browser.
 - [x] Add room/player identity, pair/sample IDs, timestamps, collection deadline,
@@ -398,8 +407,9 @@ service remains stateless.
 - [x] Broadcast one authoritative result from the coordinator to both players.
 - [ ] Preserve the last valid score and show actionable analysing, not-scoreable,
   timeout, and unavailable states.
-- [ ] Display smoothed live ranges with a persistent provisional label and no
-  premature winner declaration.
+- [x] Display shared bounded demo scores with a persistent `LIVE ESTIMATE` label,
+  no premature winner declaration, and authoritative-final replacement.
+- [ ] Replace the demo score with smoothed learned live ranges.
 - [x] On finalisation, stop live updates, show final analysis in progress, then
   atomically lock the exact server-authoritative scores and winner or draw on
   both clients.
