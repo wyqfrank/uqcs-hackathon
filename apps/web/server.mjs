@@ -1,9 +1,24 @@
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import next from "next";
 import { Server as SocketIOServer } from "socket.io";
 import { ScoringCoordinator } from "./lib/scoring-coordinator.mjs";
+
+// Next reads env files relative to apps/web. Secrets shared with the Python
+// service naturally live at the repo root, so load those too — without
+// overriding anything apps/web already defines.
+const here = dirname(fileURLToPath(import.meta.url));
+for (const envFile of [".env", ".env.local"]) {
+  const path = resolve(here, "../..", envFile);
+  try {
+    process.loadEnvFile(path);
+  } catch {
+    // Absent or unreadable: apps/web's own env files still apply.
+  }
+}
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
