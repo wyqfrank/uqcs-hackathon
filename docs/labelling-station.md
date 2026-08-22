@@ -178,6 +178,44 @@ Export:
 - `GET /api/label/export?format=consensus` — **one row per pair**: the aggregated
   soft label to train against
 
+### Getting the photos to other raters
+
+The pool is gitignored, so a teammate who clones the repo has code but no
+images. Pick one of these.
+
+**1. One machine over the LAN (recommended).** The rater with the pool runs the
+server; everyone else opens `http://<their-ip>:3000/label`. No pool to
+distribute, no way for it to diverge, and all three `decisions.<rater>.jsonl`
+files land in one `data/labelling/` ready to export. Costs: everyone rates at
+the same time, and that machine has to stay up.
+
+**2. Share the source photos and re-ingest.** Send the identical zip (or point
+everyone at the same Drive folder), then each rater runs:
+
+```bash
+node scripts/ingest-label-pool.mjs ~/Downloads/outfit-photos --clear
+node scripts/ingest-label-pool.mjs --fingerprint
+```
+
+**Compare fingerprints before anyone starts rating.** Pair ids are derived from
+image filenames, so a pool that differs by even one renamed file produces ids
+nobody else has:
+
+```
+pool fingerprint: 5c66110ab00b93df     <- all raters must match
+images: 183
+```
+
+A re-download that yields `IMG_3670 (1).JPG` instead of `IMG_3670.JPG` keeps
+the same file count and changes the fingerprint. Checking takes a second;
+discovering the mismatch after labelling costs an hour of work per rater.
+`scripts/merge-labels.mjs` catches it too, but only afterwards.
+
+**3. Commit the pool.** Guarantees a byte-identical set for everyone. Before
+doing it, consider that these are scraped photos of identifiable people, some
+with creator handles visible, and a git commit is permanent and public if the
+repository is.
+
 ### Merging files from separate machines
 
 If each rater ran the app on their own laptop, collect their

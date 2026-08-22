@@ -23,8 +23,41 @@ const args = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith("--")));
 const sourceDir = args.find((a) => !a.startsWith("--"));
 
+/**
+ * Fingerprint of the installed pool. Pair ids are derived from filenames, so
+ * two raters only produce comparable labels if this matches. Checking takes a
+ * second; discovering a mismatch after labelling costs an hour of work.
+ */
+async function fingerprint() {
+  let entries;
+  try {
+    entries = await readdir(POOL_DIR);
+  } catch {
+    console.error(`No pool at ${POOL_DIR}. Run the ingest first.`);
+    process.exit(1);
+  }
+  const ids = entries
+    .filter((n) => IMAGE_EXTENSIONS.has(path.extname(n).toLowerCase()))
+    .map((n) => n.replace(/\.[^.]+$/, ""))
+    .sort();
+  const hash = createHash("sha256").update(ids.join("\n")).digest("hex").slice(0, 16);
+  console.log(`pool fingerprint: ${hash}`);
+  console.log(`images: ${ids.length}`);
+  console.log("");
+  console.log("Every rater must see the same fingerprint. If yours differs, your");
+  console.log("labels cannot be aggregated with the others' — re-ingest from the");
+  console.log("identical photo set before rating.");
+  return hash;
+}
+
+if (flags.has("--fingerprint")) {
+  await fingerprint();
+  process.exit(0);
+}
+
 if (!sourceDir) {
   console.error("usage: node scripts/ingest-label-pool.mjs <source-dir> [--dry-run] [--clear] [--group-by-prefix]");
+  console.error("       node scripts/ingest-label-pool.mjs --fingerprint");
   process.exit(1);
 }
 
@@ -43,20 +76,46 @@ function subjectFor(filename) {
 }
 
 const source = path.resolve(sourceDir);
-let entries;
-try {
-  entries = await readdir(source);
-} catch {
-  console.error(`Cannot read ${source}`);
-  process.exit(1);
+
+/**
+ * Walk the source tree. Archives usually extract into a wrapper folder, so a
+ * non-recursive scan reports "no images" for a directory that plainly has
+ * them. Returns paths relative to `source`.
+ */
+async function collectImages(dir, prefix = "") {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const found = [];
+  for (const entry of entries) {
+    // Skip macOS archive cruft and hidden directories.
+    if (entry.name.startsWith(".") || entry.name === "__MACOSX") continue;
+    const rel = prefix ? path.join(prefix, entry.name) : entry.name;
+    if (entry.isDirectory()) found.push(...(await collectImages(path.join(dir, entry.name), rel)));
+    else if (IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) found.push(rel);
+  }
+  return found;
 }
 
-const images = entries.filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase())).sort();
-
-if (images.length === 0) {
-  console.error(`No .jpg/.jpeg/.png/.webp files in ${source}`);
+const found = await collectImages(source);
+if (found.length === 0) {
+  console.error(`No .jpg/.jpeg/.png/.webp files under ${source}`);
   process.exit(1);
 }
+// Ids come from the basename only, so the wrapper folder cannot change them.
+const relByName = new Map();
+for (const rel of found) {
+  const base = path.basename(rel);
+  if (relByName.has(base)) {
+    console.error(`  ! duplicate filename in different folders: ${base} — ids would collide`);
+    process.exit(1);
+  }
+  relByName.set(base, rel);
+}
+const images = [...relByName.keys()].sort();
 
 if (flags.has("--clear") && !dryRun) {
   await rm(POOL_DIR, { recursive: true, force: true });
@@ -80,7 +139,7 @@ for (const name of images) {
     .replace(/^-|-$/g, "")
     .slice(0, 40)}${extension}`;
 
-  const sourcePath = path.join(source, name);
+  const sourcePath = path.join(source, relByName.get(name));
   const info = await stat(sourcePath);
   if (!info.isFile()) { skipped += 1; continue; }
 
@@ -98,3 +157,8 @@ if (subjects.size === copied) {
   console.log("every photo is its own subject — pairs will all be group 'close'.");
 }
 if (copied < 2) console.log("WARNING: at least two subjects are needed to build any pair.");
+
+if (!dryRun) {
+  console.log("");
+  await fingerprint();
+}
