@@ -635,3 +635,37 @@ test("does not blame a player whose frames were discarded with the pair", () => 
   assert.match(message, /Player 1/);
   assert.doesNotMatch(message, /Player 2/);
 });
+
+test("a frame in an unsupported format is recorded, not left pending", async () => {
+  const { coordinator, host, guest } = setup(async () => ({ ok: true, json: async () => ({}) }));
+  const { state } = await startFinalisation(coordinator, host, guest);
+  const [slot] = state.slots;
+
+  let ack = null;
+  coordinator.submitFrame(
+    host,
+    { ...finalFrame(state, slot, "host", "host"), mimeType: "image/gif" },
+    (value) => { ack = value; },
+  );
+
+  assert.equal(ack.ok, false);
+  // The critical part: a rejected upload must not look like a silent client.
+  assert.equal(slot.responses.player_a, "unavailable");
+  assert.equal(slot.reasons.player_a, "unsupported_format");
+});
+
+test("Safari's PNG fallback is accepted rather than rejected", async () => {
+  const { coordinator, host, guest } = setup(async () => ({ ok: true, json: async () => ({}) }));
+  const { state } = await startFinalisation(coordinator, host, guest);
+  const [slot] = state.slots;
+
+  let ack = null;
+  coordinator.submitFrame(
+    host,
+    { ...finalFrame(state, slot, "host", "host"), mimeType: "image/png" },
+    (value) => { ack = value; },
+  );
+
+  assert.equal(ack.ok, true);
+  assert.equal(slot.responses.player_a, "frame");
+});

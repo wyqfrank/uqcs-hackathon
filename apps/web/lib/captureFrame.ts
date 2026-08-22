@@ -92,11 +92,13 @@ export async function encodeImageBitmap(
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
   const encoded = await canvasToBlob(canvas, format, quality);
   if (encoded && SUPPORTED_UPLOAD_TYPES.has(encoded.type.toLowerCase())) return encoded;
+  // Safari may silently return PNG when asked for WebP. Prefer compact JPEG,
+  // but retain the valid PNG as a last resort because the server accepts it.
   if (format === "image/webp") {
     const jpeg = await canvasToBlob(canvas, "image/jpeg", quality);
     if (jpeg && jpeg.type.toLowerCase() === "image/jpeg") return jpeg;
   }
-  return null;
+  return encoded;
 }
 
 export async function encodeAndCloseImageBitmap(

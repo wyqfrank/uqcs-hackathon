@@ -3,7 +3,10 @@ import { imageFilename, normaliseImageMimeType } from "./image-upload.mjs";
 
 const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAX_BURST_BYTES = 15 * 1024 * 1024;
-const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/webp"]);
+// PNG is included because Safari's canvas.toBlob falls back to it when asked
+// for a format it cannot encode. Rejecting it silently failed every battle
+// hosted from Safari.
+const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/webp", "image/png"]);
 
 function errorResult(roomId, state, reasonCode, message) {
   const samplePairs = state.pairedIdentity ?? [];
@@ -49,6 +52,9 @@ const FRAME_REASON_HINTS = {
   no_stable_frame: "no steady frame was ready in time",
   no_current_frame: "no frame was ready in time",
   encoding_failed: "the captured frame could not be encoded",
+  unsupported_format: "their browser encoded the frame in a format the server rejected",
+  frame_too_large: "the captured frame was too large to upload",
+  invalid_metadata: "the frame arrived without valid metadata",
 };
 
 /**
@@ -616,19 +622,29 @@ export class ScoringCoordinator {
     const mimeType = normaliseImageMimeType(payload?.mimeType);
     const sampleId = String(payload?.sampleId || "");
     const capturedAtEpochMs = Number(payload?.capturedAtEpochMs);
+
+    // A rejected frame is recorded as a declined slot with a reason. Returning
+    // without recording left the slot "pending", which is what a crashed client
+    // looks like, so a rejected upload was reported as an unresponsive player.
+    const reject = (reason, error) => {
+      slot.responses[player.playerRole] = "unavailable";
+      if (slot.reasons) slot.reasons[player.playerRole] = reason;
+      acknowledge({ ok: false, error });
+      if (Object.values(slot.responses).every((response) => response !== "pending")) {
+        this.settleBurstSlot(player.roomId, state, slot);
+      }
+    };
+
     if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) {
-      acknowledge({
-        ok: false,
-        error: "This browser returned an unsupported final-frame format. Retry the score.",
-      });
+      reject("unsupported_format", `Unsupported frame format: ${mimeType || "unknown"}.`);
       return;
     }
     if (!image?.length || image.length > this.maxImageBytes) {
-      acknowledge({ ok: false, error: "Final frame size is invalid." });
+      reject("frame_too_large", "Final frame size is invalid.");
       return;
     }
     if (!sampleId || sampleId.length > 128 || !Number.isFinite(capturedAtEpochMs)) {
-      acknowledge({ ok: false, error: "Final frame metadata is invalid." });
+      reject("invalid_metadata", "Final frame metadata is invalid.");
       return;
     }
     if (slot.responses[player.playerRole] === "unavailable") {

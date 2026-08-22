@@ -33,7 +33,7 @@ remain unsettled.
   battles and the live display is tuned or reduced to the qualitative fallback.
 
 Automated verification on 2026-08-22 passes TypeScript typecheck, 75 web unit
-tests, 27 Node coordinator tests, 63 Python/API tests, Ruff, and the production
+tests, 29 Node coordinator tests, 63 Python/API tests, Ruff, and the production
 build. The signalling smoke test could not be rerun while the user's existing
 Next dev server held the development lock; its prior passing status is unchanged.
 The credentialed Gemini smoke test is present but skipped by default; visual

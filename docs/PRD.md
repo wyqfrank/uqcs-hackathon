@@ -94,7 +94,7 @@ Last verified against the working tree on 2026-08-22.
       capacity, SDP relay, and reconnect.
 - [x] Web unit tests pass: 75 tests across 11 files covering scoring, garment
       perception, frame capture, and the CV modules.
-- [x] Scoring coordinator tests pass: 27 tests covering readiness, countdown,
+- [x] Scoring coordinator tests pass: 29 tests covering readiness, countdown,
       burst capture, fallback, backpressure, stale work, and reconnect replay.
 - [x] Python inference tests pass: 63 passed, 1 skipped, covering the API,
       perception, RF-DETR, scoring and VLM engine. Requires `npm run setup`,

@@ -4,5 +4,8 @@ export function normaliseImageMimeType(value) {
 }
 
 export function imageFilename(stem, mimeType) {
-  return `${stem}.${mimeType === "image/jpeg" ? "jpg" : "webp"}`;
+  const extension = mimeType === "image/jpeg"
+    ? "jpg"
+    : mimeType === "image/png" ? "png" : "webp";
+  return `${stem}.${extension}`;
 }
