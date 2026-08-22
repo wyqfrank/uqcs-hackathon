@@ -1340,3 +1340,167 @@ kbd {
    eye the way the finalise control does during a round. */
 .control-dock .rematch-control { color: var(--p2); }
 .control-dock .rematch-control:hover { color: var(--p2-light); background: rgba(182, 255, 31, .08); }
+
+/* ============================================================
+   Battle overlays — opening countdown and final result.
+   Both use one shell so the scrim and entrance never drift apart.
+   ============================================================ */
+
+.battle-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  animation: overlay-in .18s ease-out;
+}
+/* Countdown: players are still framing, so keep the feeds readable. */
+.battle-overlay.is-light { background: rgba(11, 11, 11, .45); backdrop-filter: blur(2px); }
+/* Result: the battle is over, so the verdict takes the screen. */
+.battle-overlay.is-heavy { background: rgba(11, 11, 11, .88); backdrop-filter: blur(6px); }
+
+.battle-overlay-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  max-width: min(760px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+.is-heavy .battle-overlay-panel {
+  padding: 34px 34px 26px;
+  background: var(--panel);
+  box-shadow: var(--raised), var(--drop);
+}
+
+/* --- Countdown ---------------------------------------------------------- */
+
+.countdown-eyebrow,
+.result-eyebrow {
+  font-family: var(--font-arcade), monospace;
+  font-size: 1.25rem;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+  color: var(--ko);
+}
+/* Arcade face, not the graffiti one: numerals in the display face are too
+   abstract to read at a glance — the same reason the score uses VT323. */
+.countdown-number {
+  display: block;
+  font-family: var(--font-arcade), monospace;
+  font-size: clamp(8rem, 30vw, 20rem);
+  line-height: .82;
+  color: #fff;
+  text-shadow: 8px 8px 0 #000, 0 0 60px rgba(255, 106, 0, .35);
+  transform: skewX(var(--skew));
+  /* steps() so it ticks like a cabinet rather than easing like a web page. */
+  animation: countdown-pop .34s steps(5, end);
+}
+.countdown-hint {
+  margin: 0;
+  font-family: var(--font-arcade), monospace;
+  font-size: 1.3rem;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* --- Result ------------------------------------------------------------- */
+
+.result-dismiss { position: absolute; top: 6px; right: 8px; z-index: 2; color: var(--text-faint); }
+.result-dismiss:hover { color: var(--ko); }
+
+.result-scores {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(16px, 5vw, 48px);
+  margin-top: 4px;
+}
+.result-scores > i {
+  font-style: normal;
+  font-family: var(--font-display), Impact, cursive;
+  font-size: 1.9rem;
+  color: var(--ko);
+}
+.result-side { display: flex; flex-direction: column; gap: 2px; opacity: .55; }
+.result-side.is-winner { opacity: 1; }
+.result-side > span {
+  font-family: var(--font-arcade), monospace;
+  font-size: 1.1rem;
+  letter-spacing: .24em;
+  color: var(--text-dim);
+}
+.result-side > strong {
+  font-family: var(--font-arcade), monospace;
+  font-size: clamp(3.4rem, 9vw, 5.6rem);
+  line-height: 1;
+  color: #fff;
+  text-shadow: 4px 4px 0 #000;
+}
+.result-side.is-winner > strong { color: var(--ko); }
+
+.result-verdict {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-display), Impact, cursive;
+  font-size: clamp(1.9rem, 5.4vw, 3.2rem);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: #fff;
+  -webkit-text-stroke: 3px #000;
+  paint-order: stroke fill;
+  transform: skewX(var(--skew));
+}
+.result-verdict.is-win { color: var(--ko); }
+.result-verdict.is-draw { color: var(--p2); }
+
+.result-rows { width: 100%; margin-top: 14px; display: grid; gap: 3px; }
+.result-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 14px;
+  background: var(--sunken);
+  font-family: var(--font-arcade), monospace;
+  font-size: 1.2rem;
+}
+.result-row > span:first-child { text-align: right; color: var(--text-dim); }
+.result-row > span:last-child { text-align: left; color: var(--text-dim); }
+.result-row > span.is-lead { color: var(--ko); }
+.result-row > b {
+  font-weight: 400;
+  font-size: 1rem;
+  letter-spacing: .2em;
+  color: var(--text-faint);
+}
+
+.result-explanation {
+  margin: 14px 0 0;
+  font-family: var(--font-arcade), monospace;
+  font-size: 1.25rem;
+  line-height: 1.45;
+  letter-spacing: .04em;
+  color: var(--text-dim);
+  text-align: left;
+  padding: 12px 15px;
+  background: var(--sunken);
+  border-left: 3px solid var(--ko);
+}
+
+@keyframes overlay-in { from { opacity: 0; } }
+@keyframes countdown-pop {
+  from { transform: skewX(var(--skew)) scale(1.5); opacity: .25; }
+  to { transform: skewX(var(--skew)) scale(1); opacity: 1; }
+}
+
+@media (max-width: 620px) {
+  .is-heavy .battle-overlay-panel { padding: 22px 18px 20px; }
+  .result-row { font-size: 1.05rem; padding: 6px 10px; gap: 8px; }
+  .result-explanation { font-size: 1.1rem; }
+}

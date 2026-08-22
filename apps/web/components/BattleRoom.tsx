@@ -12,6 +12,8 @@ import { CV_CONFIG } from "@/lib/cv/config";
 import { scoresForRole } from "@/lib/scoring";
 import type { RoomRole } from "@/lib/signaling";
 import { BattleResult } from "./BattleResult";
+import { CountdownOverlay } from "./CountdownOverlay";
+import { ResultOverlay } from "./ResultOverlay";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { PlayerCard } from "./PlayerCard";
 import { Button } from "./ui/button";
@@ -35,6 +37,7 @@ export function BattleRoom({
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [copied, setCopied] = useState(false);
+  const [dismissedResultId, setDismissedResultId] = useState<string | null>(null);
   const camera = useCamera(true);
   const rtc = useWebRTC(roomId, role, camera.stream, playerName);
   const outfitDetection = useOutfitDetection(localVideoRef, Boolean(camera.stream));
@@ -182,6 +185,18 @@ export function BattleRoom({
 
         <BattleResult state={scoring.state} role={role} />
       </section>
+
+      {scoring.state.phase === "countdown" && (
+        <CountdownOverlay secondsRemaining={scoring.state.secondsRemaining} />
+      )}
+
+      {scoring.state.phase === "final" && dismissedResultId !== scoring.state.result.finalisationId && (
+        <ResultOverlay
+          result={scoring.state.result}
+          role={role}
+          onDismiss={() => setDismissedResultId(scoring.state.phase === "final" ? scoring.state.result.finalisationId : null)}
+        />
+      )}
 
       <div className="control-dock">
         <Button variant="bare" size="bare" aria-label={camera.stream ? "Stop camera" : "Start camera"} className="primary-control" onClick={camera.stream ? camera.stopCamera : () => void camera.startCamera()}>
