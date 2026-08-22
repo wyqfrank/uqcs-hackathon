@@ -1098,6 +1098,8 @@ button:focus-visible, input:focus-visible {
 @media (max-width: 620px) {
   .board-head, .board-row { grid-template-columns: 48px minmax(0, 1fr) 46px 56px; gap: 10px; padding: 12px 13px; }
   .board-head span:nth-child(5), .board-played { display: none; }
+}
+
 /* ============================================================
    Outfit rating station (/label) — internal tooling.
    Deliberately calmer than the battle UI: raters look at this for
@@ -1232,8 +1234,6 @@ button:focus-visible, input:focus-visible {
 .label-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 .label-followup {
   flex: none;
-  max-height: 34vh;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1247,15 +1247,25 @@ button:focus-visible, input:focus-visible {
   text-transform: uppercase;
   color: var(--text-dim);
 }
-.label-dimension { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center; }
-.label-dimension > span {
-  min-width: 240px;
-  font-family: var(--font-arcade), monospace;
-  font-size: 1.15rem;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--text-dim);
+/* One dimension at a time keeps the photos large while they are being judged. */
+.label-followup p strong { color: #f2f0e9; font-weight: 400; }
+.label-step {
+  display: inline-block;
+  margin-right: 10px;
+  padding: 1px 8px;
+  background: var(--panel-3);
+  color: var(--ko);
+  font-size: .9em;
 }
+.label-dots { display: flex; gap: 7px; }
+.label-dots i {
+  width: 26px;
+  height: 5px;
+  background: var(--panel-3);
+  display: block;
+}
+.label-dots i.is-done { background: var(--text-faint); }
+.label-dots i.is-now { background: var(--ko); }
 kbd {
   margin-left: 8px;
   padding: 1px 6px;
@@ -1267,5 +1277,4 @@ kbd {
 
 @media (max-width: 800px) {
   .label-pair { grid-template-columns: 1fr; }
-  .label-dimension > span { min-width: 0; }
 }

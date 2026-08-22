@@ -27,6 +27,21 @@ const VERDICT_KEYS: Record<string, Verdict> = {
   x: "unjudgeable",
 };
 
+/** Dimensions reuse the verdict keys, so there is one set of muscle memory. */
+const DIMENSION_KEYS: Record<string, DimensionAnswer> = {
+  a: "a", arrowleft: "a",
+  b: "b", arrowright: "b",
+  e: "equal",
+  x: "unjudgeable",
+};
+
+const DIMENSION_OPTIONS: { value: DimensionAnswer; label: string; hint: string }[] = [
+  { value: "a", label: "A", hint: "A" },
+  { value: "b", label: "B", hint: "B" },
+  { value: "equal", label: "Equal", hint: "E" },
+  { value: "unjudgeable", label: "Cannot judge", hint: "X" },
+];
+
 export function LabelStation({
   rater,
   images,
@@ -49,6 +64,7 @@ export function LabelStation({
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [reasons, setReasons] = useState<ReasonTag[]>([]);
   const [dimensions, setDimensions] = useState<Partial<Record<Dimension, DimensionAnswer>>>({});
+  const [dimensionIndex, setDimensionIndex] = useState(0);
   const [saved, setSaved] = useState(alreadyDone.length);
   const shownAt = useRef(Date.now());
   const startedAt = useRef(Date.now());
@@ -74,6 +90,7 @@ export function LabelStation({
     setVerdict(null);
     setReasons([]);
     setDimensions({});
+    setDimensionIndex(0);
   }, [index]);
 
   const commit = useCallback(
@@ -120,6 +137,18 @@ export function LabelStation({
     [pair, commit],
   );
 
+  const answerDimension = useCallback(
+    (answer: DimensionAnswer) => {
+      if (!pair || !verdict) return;
+      const dimension = DIMENSIONS[dimensionIndex];
+      const next = { ...dimensions, [dimension]: answer };
+      setDimensions(next);
+      if (dimensionIndex < DIMENSIONS.length - 1) setDimensionIndex(dimensionIndex + 1);
+      else void commit(verdict, reasons, next);
+    },
+    [pair, verdict, dimensionIndex, dimensions, reasons, commit],
+  );
+
   const finishReasons = useCallback(() => {
     if (!pair || !verdict) return;
     if (pair.askDimensions) return setStage("dimensions");
@@ -147,11 +176,16 @@ export function LabelStation({
           );
         }
         if (key === "enter") { event.preventDefault(); finishReasons(); }
+        return;
+      }
+      if (stage === "dimensions") {
+        const answer = DIMENSION_KEYS[key];
+        if (answer) { event.preventDefault(); answerDimension(answer); }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [stage, chooseVerdict, finishReasons]);
+  }, [stage, chooseVerdict, finishReasons, answerDimension]);
 
   if (!pair || !leftImage || !rightImage) {
     const rate = saved / Math.max(1, (Date.now() - startedAt.current) / 60000);
@@ -232,29 +266,26 @@ export function LabelStation({
 
       {stage === "dimensions" && verdict && (
         <div className="label-followup">
-          <p>For each, which outfit is stronger?</p>
-          {DIMENSIONS.map((dimension) => (
-            <div key={dimension} className="label-dimension">
-              <span>{dimension}</span>
-              <div className="label-tags">
-                {(["a", "b", "equal", "unjudgeable"] as const).map((answer) => (
-                  <Button
-                    key={answer}
-                    variant={dimensions[dimension] === answer ? "default" : "outline"}
-                    onClick={() => setDimensions((current) => ({ ...current, [dimension]: answer }))}
-                  >
-                    {answer === "a" ? "A" : answer === "b" ? "B" : answer === "equal" ? "Equal" : "Cannot judge"}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ))}
-          <Button
-            disabled={Object.keys(dimensions).length < DIMENSIONS.length}
-            onClick={() => void commit(verdict, reasons, dimensions)}
-          >
-            Save and continue
-          </Button>
+          <p>
+            <span className="label-step">{dimensionIndex + 1} / {DIMENSIONS.length}</span>
+            Which is stronger on <strong>{DIMENSIONS[dimensionIndex].toLowerCase()}</strong>?
+          </p>
+          <div className="label-tags">
+            {DIMENSION_OPTIONS.map((option) => (
+              <Button
+                key={option.value}
+                variant={option.value === "a" || option.value === "b" ? "default" : "outline"}
+                onClick={() => answerDimension(option.value)}
+              >
+                {option.label} <kbd>{option.hint}</kbd>
+              </Button>
+            ))}
+          </div>
+          <div className="label-dots" aria-hidden="true">
+            {DIMENSIONS.map((dimension, i) => (
+              <i key={dimension} className={i < dimensionIndex ? "is-done" : i === dimensionIndex ? "is-now" : ""} />
+            ))}
+          </div>
         </div>
       )}
     </div>

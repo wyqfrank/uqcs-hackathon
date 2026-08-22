@@ -12,7 +12,20 @@ const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 
 export const POOL_DIR = path.join(process.cwd(), "public", "label-pool");
 export const DATA_DIR = path.join(process.cwd(), "..", "..", "data", "labelling");
-export const DECISIONS_FILE = path.join(DATA_DIR, "decisions.jsonl");
+/**
+ * One file per rater. Each person labels the full set independently and the
+ * results are aggregated afterwards, so keeping them separate avoids
+ * interleaved writes and makes per-rater agreement measurable.
+ */
+export function raterSlug(raterId: string): string {
+  const slug = raterId.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
+  // Never let a rater id escape the data directory.
+  return slug.slice(0, 40) || "unknown";
+}
+
+export function decisionsFileFor(raterId: string): string {
+  return path.join(DATA_DIR, `decisions.${raterSlug(raterId)}.jsonl`);
+}
 
 /**
  * Filenames carry their own metadata so curating the pool is a rename, not a
@@ -49,9 +62,9 @@ export async function readPool(): Promise<PoolImage[]> {
   return assignSplits(bare);
 }
 
-export async function readDecisions(): Promise<Decision[]> {
+async function readJsonl(file: string): Promise<Decision[]> {
   try {
-    const raw = await readFile(DECISIONS_FILE, "utf8");
+    const raw = await readFile(file, "utf8");
     return raw
       .split("\n")
       .filter((line) => line.trim().length > 0)
@@ -61,7 +74,25 @@ export async function readDecisions(): Promise<Decision[]> {
   }
 }
 
+/** Decisions recorded by one rater. */
+export async function readDecisions(raterId: string): Promise<Decision[]> {
+  return readJsonl(decisionsFileFor(raterId));
+}
+
+/** Every rater's file, concatenated. Used for aggregation and export. */
+export async function readAllDecisions(): Promise<Decision[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(DATA_DIR);
+  } catch {
+    return [];
+  }
+  const files = entries.filter((name) => name.startsWith("decisions.") && name.endsWith(".jsonl"));
+  const all = await Promise.all(files.map((name) => readJsonl(path.join(DATA_DIR, name))));
+  return all.flat();
+}
+
 export async function appendDecision(decision: Decision): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
-  await appendFile(DECISIONS_FILE, `${JSON.stringify(decision)}\n`, "utf8");
+  await appendFile(decisionsFileFor(decision.raterId), `${JSON.stringify(decision)}\n`, "utf8");
 }

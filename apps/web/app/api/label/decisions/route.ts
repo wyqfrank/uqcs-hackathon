@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import { appendDecision, readDecisions } from "@/lib/labelling/store";
+import { appendDecision, readAllDecisions, readDecisions } from "@/lib/labelling/store";
 import type { Decision } from "@/lib/labelling/types";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const raterId = new URL(request.url).searchParams.get("raterId");
-  const decisions = await readDecisions();
-  return NextResponse.json({
-    decisions: raterId ? decisions.filter((d) => d.raterId === raterId) : decisions,
-    total: decisions.length,
-  });
+  if (raterId) {
+    const decisions = await readDecisions(raterId);
+    return NextResponse.json({ decisions, total: decisions.length });
+  }
+  const all = await readAllDecisions();
+  return NextResponse.json({ decisions: all, total: all.length });
 }
 
 export async function POST(request: Request) {

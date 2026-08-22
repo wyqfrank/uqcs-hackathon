@@ -99,14 +99,23 @@ matching the PRD's 20–30% guidance, so the primary task stays fast.
 
 Keyboard-first, because throughput is the point:
 
-| Key | Action |
-|---|---|
-| `A` / `←` | A wins |
-| `B` / `→` | B wins |
-| `T` | Too close |
-| `X` | Cannot judge |
-| `1`–`6` | toggle a reason tag (max two) |
-| `↵` | confirm reasons and continue |
+| Stage | Key | Action |
+|---|---|---|
+| Verdict | `A` / `←` | A wins |
+| Verdict | `B` / `→` | B wins |
+| Verdict | `T` | Too close |
+| Verdict | `X` | Cannot judge |
+| Reasons | `1`–`6` | toggle a reason tag (max two) |
+| Reasons | `↵` | confirm and continue |
+| Dimensions | `A` / `←` | A stronger |
+| Dimensions | `B` / `→` | B stronger |
+| Dimensions | `E` | Equal |
+| Dimensions | `X` | Cannot judge |
+
+Dimension judgements are asked **one at a time** and reuse the same `A`/`B`
+keys as the verdict, so there is a single set of muscle memory. Answering
+advances to the next dimension; the third answer saves and moves on. Three
+keystrokes, no mouse, and the photos stay large while being judged.
 
 The next two pairs are preloaded, and writes are fire-and-forget, so advancing
 never waits on the network or disk. Progress is saved per decision — closing the
@@ -114,7 +123,16 @@ tab loses nothing, and reopening resumes past what that rater already answered.
 
 ## Output
 
-Decisions append to `data/labelling/decisions.jsonl`, one JSON object per line.
+**One file per rater**: `data/labelling/decisions.<rater>.jsonl`, one JSON
+object per line. Each person labels the full set independently and the results
+are aggregated afterwards, so there are no interleaved writes and per-rater
+agreement stays measurable.
+
+For the aggregate to be meaningful, every rater must see the **same pairs** —
+that means the same image pool and the same seed. Either run one server that
+everyone opens over the LAN, or make sure each machine ingests the identical
+photo set (subject ids are hashed from filenames, so identical files give
+identical ids).
 
 Label interpretation follows the PRD: `A wins` → `1.0`, `B wins` → `0.0`,
 `Too close` → `0.5`, `Cannot judge` → `null`. Rows with a `null` target are
@@ -127,8 +145,27 @@ target audience disagree and spot rushed labels.
 
 Export:
 
-- `GET /api/label/export` — JSON with counts, preference rows and frame-quality rows
-- `GET /api/label/export?format=csv` — flat CSV for training
+- `GET /api/label/export` — JSON: summary, per-pair consensus, preference rows, frame-quality rows
+- `GET /api/label/export?format=csv` — raw per-decision CSV (one row per rater per pair)
+- `GET /api/label/export?format=consensus` — **one row per pair**: the aggregated
+  soft label to train against
+
+### Aggregation
+
+`lib/labelling/aggregate.ts` combines the independent passes:
+
+- **`meanTarget`** — the soft training label. Three raters split 2–1 gives
+  `0.67` rather than a forced winner, so genuine disagreement reaches the model
+  as uncertainty instead of noise.
+- **`agreement`** — share of raters giving the modal verdict. `1.0` is unanimous.
+- **`contested`** — true when raters disagreed on *who won* (ignoring
+  `Too close` / `Cannot judge`).
+- **`meanAgreement`** across shared pairs is the practical estimate of the
+  model's realistic ceiling: no model should be expected to beat the rate at
+  which humans agree with each other.
+
+`Cannot judge` votes are counted but excluded from `meanTarget`. A pair nobody
+could judge gets a `null` target and is exported as a frame-quality example.
 
 ## What this tool does not do
 
