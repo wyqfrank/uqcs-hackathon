@@ -66,6 +66,11 @@ This checklist is the high-level source of truth for specification and implement
 - [ ] Passing garment perception updates the live battle at approximately 1 FPS with one inference operation in flight and no queued frames.
 - [x] A frozen visual-encoder baseline is implemented and evaluated.
 - [x] A pairwise scoring head is implemented and evaluated.
+- [x] Scoring-head capacity and function class are evaluated and rejected as the
+      bottleneck. PCA dimensions are flat to 384 (no compression), and a ReLU MLP
+      head is *worse* than linear on held-out teacher fidelity (0.655-0.663 versus
+      0.676) while human validation regresses (0.677-0.684 versus 0.734). The
+      remaining candidates are upstream — the encoder, or the supervision.
 - [x] The pairwise ranker beats chance on its target cohort: 0.643, 95% CI
       [0.561, 0.717], n=140, lower bound clear of 0.5. It does **not** beat
       chance on pooled three-rater labels (0.553, CI [0.485, 0.619]), which is

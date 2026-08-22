@@ -43,6 +43,7 @@ CACHE_PATH = ARTIFACT_DIR / "judge-benchmark.jsonl"
 MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 
 from distil_teacher import load_dotenv  # noqa: E402
+from ranker_artifact import load_scorer  # noqa: E402
 
 from fitted_inference.scoring import visual_fit_score  # noqa: E402
 from fitted_inference.vlm import (  # noqa: E402
@@ -163,16 +164,9 @@ async def run_gemini(pairs: list[tuple[str, str]], concurrency: int, out: Path) 
     return done
 
 
-def ranker_scores() -> tuple[dict, callable]:
-    art = np.load(ARTIFACT_DIR / "ranker.npz")
+def ranker_scores(artifact_dir: Path = ARTIFACT_DIR) -> tuple[dict, callable]:
     emb = dict(np.load(ARTIFACT_DIR / "embeddings.npz"))
-    centre, basis, weights = art["centre"], art["basis"], art["weights"]
-
-    def score(stem: str) -> float:
-        z = (emb[stem] - centre) @ basis.T
-        return float((z / max(np.linalg.norm(z), 1e-8)) @ weights)
-
-    return emb, score
+    return emb, load_scorer(artifact_dir, emb)
 
 
 def wilson(p: float, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -190,6 +184,12 @@ async def main() -> None:
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--decisions-dir", type=Path, default=DECISIONS_DIR)
     parser.add_argument("--cache", type=Path, default=CACHE_PATH)
+    parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        default=ARTIFACT_DIR,
+        help="directory holding ranker.npz/ranker.json to score (default: models/ranker)",
+    )
     args = parser.parse_args()
 
     raters = {r.strip().upper() for r in args.raters.split(",") if r.strip()}
@@ -208,7 +208,7 @@ async def main() -> None:
 
     ordered = sorted(both)
     margins = await run_gemini(ordered, args.concurrency, args.cache)
-    _, score = ranker_scores()
+    _, score = ranker_scores(args.artifact_dir)
 
     rows = []
     for key in ordered:

@@ -1,7 +1,7 @@
 # FITTED scoring — handoff
 
 Working notes for continuing the ML scoring work in a fresh session.
-Last updated 2026-08-22. Product scope lives in [`PRD.md`](PRD.md); this file
+Last updated 2026-08-23. Product scope lives in [`PRD.md`](PRD.md); this file
 records state, measurements, and the traps that cost time.
 
 ---
@@ -69,9 +69,50 @@ embedding dimensions it keeps:
 reproduces Gemini at 0.695. The plateau is the ceiling of a *linear* function of
 DINOv2 embeddings; more dimensions cannot cross it.
 
+The "Fit to Gemini" column is **in-sample** — measured on the same teacher pairs
+it was fitted on. Harmless for a 16-dim linear model and the conclusion stands,
+but it is not comparable to the held-out numbers in the next section.
+
 dims=64 is a genuine but tiny improvement in teacher fidelity (0.674 → 0.696, and
 at n=1926 that is outside noise). It is **not** currently adopted — the shipped
 artifact is dims=16 to match what the PRD documents. Adopting 64 is free.
+
+### Non-linear head (2026-08-23, hypothesis rejected)
+
+The capacity sweep implied the wall was *linearity*, so the head was generalised
+to a per-image scorer `f(z)`, with the pair margin as `f(z_left) - f(z_right)`.
+That form is antisymmetric by construction, so swap consistency still holds
+without measuring it, and scoring stays pointwise for the live path. Same
+embeddings, same PCA basis, same frozen decisions snapshot, same L2 sweep — only
+the function class changed. Decided on validation and a **held-out** slice of the
+teacher pairs; the test split was not touched.
+
+| Head | Teacher fit (in-sample) | Teacher fit (held-out) | Human val |
+|---|---|---|---|
+| linear | 0.677 | **0.676** [0.628, 0.721] | **0.734** |
+| MLP relu h8 | 0.725 | 0.661 [0.612, 0.706] | 0.684 |
+| MLP relu h16 | 0.784 | 0.663 [0.615, 0.709] | 0.684 |
+| MLP relu h32 | 0.856 | 0.655 [0.607, 0.701] | 0.677 |
+
+**Linearity is not the bottleneck either.** In-sample teacher fit climbs steeply
+with width while held-out fidelity stays pinned near 0.66 and human val
+regresses. Train accuracy on human pairs reaches 0.86–0.89 against val
+0.65–0.68: the capacity goes entirely into memorising 761 training pairs. This
+is exactly the failure the `train_ranker.py` docstring predicted.
+
+**Trap — tanh silently collapses to linear here.** The first attempt used tanh
+and returned identical accuracy at every width. It had not tested non-linearity
+at all: projected embeddings are L2-normalised, the proximal L2 penalty shrank
+the first layer, and pre-activations stayed in the region where `tanh(x) ≈ x`.
+The fitted scorer correlated **0.991** with the linear model and agreed with it
+on 96% of image pairs. ReLU's kink is scale-free and survives weight shrinkage;
+excluding the first layer from the proximal penalty was also required. Any future
+head experiment should report correlation against a linear fit as a validity
+check *before* its accuracy is believed.
+
+**Both head-side hypotheses are now closed.** Neither representation size nor
+function class moves the number. What remains is upstream: the encoder's
+features, or the supervision itself.
 
 ---
 
@@ -87,8 +128,10 @@ Artifact: `models/ranker/ranker.npz` + `ranker.json` (gitignored — `models/` i
 ignored, so the artifact must be regenerated after a fresh clone).
 
 Architecture: frozen DINOv2-S → PCA to 16 dims (basis fitted on training images
-only) → linear pairwise scorer, **no intercept**, so swap consistency holds by
-construction rather than by measurement.
+only) → linear scorer, **no intercept**, so swap consistency holds by
+construction rather than by measurement. Now expressed as a per-image scorer
+`f(z) = w·z` with the margin as `f(a) - f(b)`; mathematically identical to the
+old difference-vector form, and verified bit-identical against it.
 
 ---
 
@@ -103,10 +146,16 @@ wheel (which packages `src/fitted_inference` only).
 | `distil_teacher.py` | Collect Gemini teacher labels over an image pool |
 | `prepare_teacher_pool.py` | Stream Fashion144k → webcam-like WebP pool |
 | `benchmark_judges.py` | Score human / Gemini / ranker on identical pairs |
+| `ranker_artifact.py` | Shared artifact loader — owns projection + activation math |
 
 Useful `train_ranker.py` flags: `--dims`, `--raters AC,DP`, `--decisions-dir`
 (frozen snapshot), `--teacher`, `--projection {train,teacher}`, `--tie-margin`,
-`--report-test`.
+`--report-test`, `--head {linear,mlp}`, `--hidden`, `--activation`,
+`--teacher-holdout`, `--artifact-dir`.
+
+**`--artifact-dir` matters.** The default writes over `models/ranker/ranker.npz`,
+which is gitignored and therefore unrecoverable by git. Point experiments
+somewhere else.
 
 ---
 
@@ -192,22 +241,18 @@ number is needed later, collect fresh labels or hold out new images.
 
 ## Open options, ranked
 
-**1. Non-linear head — free, ~10 min.** The capacity sweep implies the wall is
-linearity, not size. Replace the weighted sum with a small MLP; same data, same
-embeddings, different function class. This is the direct test and costs nothing.
-
-**2. In-domain teacher labels — ~$5, ~1 hour.** Have Gemini judge pairs built
+**1. In-domain teacher labels — ~$5, ~1 hour.** Have Gemini judge pairs built
 from the project's own 128 **training-split** images instead of Fashion144k.
 Removes the domain gap and removes the non-commercial licence constraint.
 **Critical: pair only train-split images.** The 62 benchmark pairs are test pairs
 and must never enter training. 128 train images give 8,128 possible pairs, so
 supply is not a limit.
 
-**3. Different encoder — free-ish, ~15 min.** SigLIP 2 or FashionCLIP, both still
+**2. Different encoder — free-ish, ~15 min.** SigLIP 2 or FashionCLIP, both still
 open questions in the PRD and never benchmarked. If DINOv2's features do not
 encode what Gemini reacts to, no head shape or training data fixes it.
 
-**4. Wire to the app.** Replaces a seeded fake with something real. Needs: load
+**3. Wire to the app.** Replaces a seeded fake with something real. Needs: load
 the artifact in `src/fitted_inference`, add DINOv2 embedding to the live path
 (**71 ms/frame measured on this CPU**), calibrate `w·z` to a 0–100 display score,
 replace the client's seeded estimate.
@@ -227,8 +272,13 @@ contradicted. The PRD already leans this way.
 
 ### Not worth revisiting
 
-More PCA dimensions (measured, flat), more Fashion144k teacher pairs (zero-shot
-already matches a human-trained model), and Fashion144k's own vote labels.
+More PCA dimensions (measured, flat), a non-linear head (measured, worse), and
+Fashion144k's own vote labels.
+
+**More Fashion144k teacher pairs was on this list and should come off it.** That
+verdict rested on a linear student, which saturates long before the data runs
+out. An MLP overfitting at 1,972 teacher pairs is the opposite regime, and is the
+first result here that more teacher data could plausibly change.
 
 ---
 

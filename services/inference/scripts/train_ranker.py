@@ -32,10 +32,12 @@ import math
 import sys
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from ranker_artifact import ACTIVATIONS, load_scorer, numpy_activation
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 POOL_DIR = REPO_ROOT / "apps" / "web" / "public" / "label-pool"
@@ -47,7 +49,7 @@ TEACHER_CACHE_PATH = ARTIFACT_DIR / "teacher-embeddings.npz"
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 ENCODER = "facebook/dinov2-small"
-RANKER_VERSION = "dinov2s-pca-linear-v1"
+RANKER_VERSIONS = {"linear": "dinov2s-pca-linear-v1", "mlp": "dinov2s-pca-mlp-v1"}
 
 
 # --------------------------------------------------------------------------
@@ -284,55 +286,268 @@ def project(vectors: np.ndarray, centre: np.ndarray, basis: np.ndarray) -> np.nd
     return reduced / np.maximum(norms, 1e-8)
 
 
-def fit_ranker(
-    x: np.ndarray,
+def _torch_activation(name: str):
+    import torch
+
+    if name == "tanh":
+        return torch.tanh
+    if name == "relu":
+        return torch.relu
+    if name == "gelu":
+        # tanh-approximate form so the numpy scorer (ranker_artifact.numpy_activation)
+        # can match it exactly without an erf dependency; torch's exact-erf gelu
+        # differs from this by <1e-3 everywhere, immaterial next to the effect
+        # being measured.
+        return lambda x: torch.nn.functional.gelu(x, approximate="tanh")
+    raise ValueError(f"unknown activation {name!r}, expected one of {ACTIVATIONS}")
+
+
+def fit_head(
+    z_left: np.ndarray,
+    z_right: np.ndarray,
     y: np.ndarray,
     l2: float,
+    *,
+    head: str = "linear",
+    hidden: int = 16,
+    activation: str = "relu",
+    prior: dict[str, np.ndarray] | None = None,
+    seed: int = 0,
     steps: int = 400,
-    prior: np.ndarray | None = None,
-) -> np.ndarray:
-    """Logistic regression on difference vectors, no intercept.
+) -> dict[str, np.ndarray]:
+    """Fit a per-image scorer f(z), trained on the margin f(z_left) - f(z_right).
+
+    A per-image scorer rather than a function of the difference vector, so
+    `margin(a, b) == -margin(b, a)` by construction (antisymmetry survives the
+    head change for free) and the fitted parameters can score one image alone
+    (what benchmark_judges.py and the live path both need).
 
     Soft labels: a 0.5 "too close to call" contributes genuine information
     (these two outfits are near-equal) and BCE handles it without a special
     case, so ties stay in the training set instead of being thrown away.
 
     `prior` turns the penalty into a proximal term pulling towards an existing
-    weight vector rather than towards zero. That is how the distilled student is
-    fine-tuned: the teacher's weights are the starting point, and the few
-    hundred human pairs are only allowed to move them so far.
+    parameter dict rather than towards zero, summed tensor-by-tensor. That is
+    how the distilled student is fine-tuned: the teacher's parameters are the
+    starting point, and the few hundred human pairs are only allowed to move
+    them so far.
+
+    linear reuses the original LBFGS body verbatim (same optimiser, same
+    steps, same single `step(closure)`) so it is bit-identical to the old
+    `fit_ranker`. mlp is non-convex, so LBFGS's strong-Wolfe line search would
+    give seed-dependent, occasionally divergent results; full-batch Adam is
+    steadier and the dataset is tiny enough that minibatching buys nothing.
+
+    `activation` matters more than it looks. tanh is linear near the origin,
+    so an L2 penalty anchoring w1 towards zero (or towards a teacher prior
+    fitted the same way) can shrink pre-activations into that regime and
+    collapse the whole network onto a linear function — same accuracy, for
+    the boring reason that it computed the same thing. relu and gelu have no
+    such regime: their kink sits at a fixed point in *input* space, not at a
+    weight scale, so shrinking w1 cannot linearise them away. For that reason
+    w1/b1 are excluded from the proximal penalty below (see `penalty`) —
+    only w2 is still anchored, which is enough to keep the teacher-pretrain
+    -> human-fine-tune mechanism intact.
     """
     import torch
 
-    features = torch.from_numpy(x.astype(np.float32))
+    dims = z_left.shape[1]
+    left = torch.from_numpy(z_left.astype(np.float32))
+    right = torch.from_numpy(z_right.astype(np.float32))
     targets = torch.from_numpy(y.astype(np.float32))
-    anchor = (
-        torch.zeros(x.shape[1], dtype=torch.float32)
-        if prior is None
-        else torch.from_numpy(prior.astype(np.float32))
-    )
-    weights = anchor.clone().requires_grad_(True)
-
-    optimiser = torch.optim.LBFGS([weights], max_iter=steps, line_search_fn="strong_wolfe")
     loss_fn = torch.nn.BCEWithLogitsLoss()
+    act = _torch_activation(activation) if head == "mlp" else None
 
-    def closure() -> torch.Tensor:
-        optimiser.zero_grad()
-        offset = weights - anchor
-        loss = loss_fn(features @ weights, targets) + l2 * offset.dot(offset)
-        loss.backward()
-        return loss
+    def zeros() -> dict[str, torch.Tensor]:
+        if head == "linear":
+            return {"weights": torch.zeros(dims, dtype=torch.float32)}
+        return {
+            "w1": torch.zeros(hidden, dims, dtype=torch.float32),
+            "b1": torch.zeros(hidden, dtype=torch.float32),
+            "w2": torch.zeros(hidden, dtype=torch.float32),
+        }
 
-    optimiser.step(closure)
-    return weights.detach().numpy()
+    anchor = zeros()
+    if prior is not None:
+        anchor = {key: torch.from_numpy(prior[key].astype(np.float32)) for key in anchor}
+
+    torch.manual_seed(seed)
+    params = {key: value.clone() for key, value in anchor.items()}
+    if head == "mlp" and prior is None:
+        # Zero-init hidden weights never break symmetry (every unit computes
+        # the same gradient), so the first fit needs a small random kick.
+        # Once a prior exists it is itself broken-symmetric, and fine-tuning
+        # should start exactly there rather than perturb it further.
+        params["w1"] = torch.empty(hidden, dims).normal_(std=0.2)
+    for value in params.values():
+        value.requires_grad_(True)
+
+    def score(z: torch.Tensor) -> torch.Tensor:
+        if head == "linear":
+            return z @ params["weights"]
+        pre = z @ params["w1"].T + params["b1"]
+        return act(pre) @ params["w2"]
+
+    def penalty() -> torch.Tensor:
+        total = torch.zeros(())
+        for key, value in params.items():
+            if head == "mlp" and key in ("w1", "b1"):
+                # Excluded, not just weakened: any positive coefficient here
+                # still pulls pre-activations towards zero, which is exactly
+                # the mechanism that collapses tanh onto the identity.
+                continue
+            offset = value - anchor[key]
+            total = total + offset.flatten().dot(offset.flatten())
+        return l2 * total
+
+    def loss() -> torch.Tensor:
+        margin = score(left) - score(right)
+        return loss_fn(margin, targets) + penalty()
+
+    if head == "linear":
+        optimiser = torch.optim.LBFGS(
+            list(params.values()), max_iter=steps, line_search_fn="strong_wolfe"
+        )
+
+        def closure() -> torch.Tensor:
+            optimiser.zero_grad()
+            value = loss()
+            value.backward()
+            return value
+
+        optimiser.step(closure)
+    else:
+        optimiser = torch.optim.Adam(list(params.values()), lr=1e-2)
+        for _ in range(1500):
+            optimiser.zero_grad()
+            value = loss()
+            value.backward()
+            optimiser.step()
+
+    return {key: value.detach().numpy() for key, value in params.items()}
 
 
-def accuracy(x: np.ndarray, y: np.ndarray, weights: np.ndarray) -> tuple[float, int]:
+def make_scorer(params: dict[str, np.ndarray], head: str, activation: str = "relu"):
+    """Vectorised numpy f(z) -> score from a fitted parameter dict."""
+    if head == "linear":
+        weights = params["weights"]
+        return lambda z: z @ weights
+
+    w1, b1, w2 = params["w1"], params["b1"], params["w2"]
+    act = numpy_activation(activation)
+
+    def scorer(z: np.ndarray) -> np.ndarray:
+        return act(z @ w1.T + b1) @ w2
+
+    return scorer
+
+
+def fit_best_of_seeds(
+    z_left: np.ndarray,
+    z_right: np.ndarray,
+    y: np.ndarray,
+    l2: float,
+    *,
+    head: str,
+    hidden: int,
+    activation: str = "relu",
+    prior: dict[str, np.ndarray] | None,
+    seeds: int,
+    select_left: np.ndarray,
+    select_right: np.ndarray,
+    select_y: np.ndarray,
+) -> tuple[dict[str, np.ndarray], int]:
+    """Fit `seeds` random restarts, keep the one scoring best on a held set.
+
+    Only the mlp branch actually varies with seed: LBFGS on the linear head
+    is a deterministic convex fit from a fixed starting point, so every
+    restart returns identical weights and this is a single fit in disguise.
+    Selection uses the human validation split throughout (never the teacher
+    held-out split, even when fitting the teacher prior) so the number this
+    experiment reports is never also the number used to pick the model.
+    """
+    candidate_seeds = range(seeds) if head == "mlp" else (0,)
+    best_params: dict[str, np.ndarray] | None = None
+    best_score = -1.0
+    best_seed = 0
+    for seed in candidate_seeds:
+        params = fit_head(
+            z_left, z_right, y, l2,
+            head=head, hidden=hidden, activation=activation, prior=prior, seed=seed,
+        )
+        scorer = make_scorer(params, head, activation)
+        score, _ = accuracy(select_left, select_right, select_y, scorer)
+        if score > best_score:
+            best_params, best_score, best_seed = params, score, seed
+    assert best_params is not None
+    return best_params, best_seed
+
+
+def collapse_diagnostic(
+    params: dict[str, np.ndarray],
+    activation: str,
+    pool_z: np.ndarray,
+    linear_score: Callable[[np.ndarray], np.ndarray] | None = None,
+) -> dict:
+    """Whether a fitted MLP is actually using its non-linearity.
+
+    An MLP that fits the same accuracy as the linear head is not evidence
+    against a non-linear function class unless it actually computed a
+    non-linear function. tanh flattens to the identity near the origin, so
+    a small enough w1 (exactly what an L2 penalty anchored at zero produces)
+    collapses the network onto the linear solution — same accuracy, for the
+    boring reason that it computed the same thing.
+
+    Three checks, over every pool image (`pool_z`, already projected):
+    - mean/max |pre-activation|: how far the network actually sits from the
+      origin, where every one of these activations is approximately linear.
+    - the fraction of the score's own variance a straight line through z
+      cannot already explain (an OLS fit of the MLP's scores onto z; a
+      collapsed network has near-zero residual because it IS linear in z).
+    - correlation with a separately-fitted linear model's scores on the same
+      images, when one is supplied. Values near 1 mean the two models are
+      making the same ranking decisions — not proof of collapse by itself
+      (two very different functions could still rank similarly) but taken
+      together with the other two numbers, >0.99 here is the same signature
+      reported against the earlier tanh runs.
+    """
+    w1, b1, w2 = params["w1"], params["b1"], params["w2"]
+    pre = pool_z @ w1.T + b1
+    act = numpy_activation(activation)
+    scores = act(pre) @ w2
+
+    design = np.hstack([pool_z, np.ones((pool_z.shape[0], 1))])
+    coeffs, *_ = np.linalg.lstsq(design, scores, rcond=None)
+    residual = scores - design @ coeffs
+    total_std = float(np.std(scores))
+    nonlinear_fraction = float(np.std(residual)) / total_std if total_std > 1e-12 else 0.0
+
+    result = {
+        "nImages": int(pool_z.shape[0]),
+        "meanAbsPreActivation": float(np.abs(pre).mean()),
+        "maxAbsPreActivation": float(np.abs(pre).max()),
+        "nonlinearStdFraction": nonlinear_fraction,
+    }
+    if linear_score is not None:
+        linear_scores = linear_score(pool_z)
+        if total_std > 1e-12 and np.std(linear_scores) > 1e-12:
+            corr = float(np.corrcoef(scores, linear_scores)[0, 1])
+        else:
+            corr = float("nan")
+        result["corrWithLinear"] = corr
+        result["collapsed"] = bool(corr > 0.99)
+    return result
+
+
+def accuracy(
+    z_left: np.ndarray, z_right: np.ndarray, y: np.ndarray, scorer
+) -> tuple[float, int]:
     """Agreement on decided pairs. Ties are excluded — neither side is correct."""
     decided = y != 0.5
     if not decided.any():
         return float("nan"), 0
-    predicted = (x[decided] @ weights) > 0
+    margin = scorer(z_left[decided]) - scorer(z_right[decided])
+    predicted = margin > 0
     return float((predicted == (y[decided] > 0.5)).mean()), int(decided.sum())
 
 
@@ -350,13 +565,46 @@ def wilson_interval(correct: float, n: int, z: float = 1.96) -> tuple[float, flo
 # --------------------------------------------------------------------------
 
 
-def build_matrix(
+def build_pairs(
     comparisons: list[Comparison], embeddings: dict[str, np.ndarray]
-) -> tuple[np.ndarray, np.ndarray]:
-    """Difference vectors and their labels."""
-    x = np.stack([embeddings[c.left] - embeddings[c.right] for c in comparisons])
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Left and right embeddings kept separate, plus labels.
+
+    The old `build_matrix` collapsed each pair to `emb[left] - emb[right]`,
+    which only works because a linear head is itself linear in that
+    difference. A per-image scorer needs both sides individually so it can
+    also be called pointwise, on one image, outside training.
+    """
+    if not comparisons:
+        # np.stack rejects an empty sequence; --teacher-holdout 0 (or 1) hits
+        # this legitimately by holding out none (or all) of the teacher pairs.
+        dims = next(iter(embeddings.values())).shape[0] if embeddings else 0
+        empty = np.zeros((0, dims), dtype=np.float32)
+        return empty, empty, np.zeros(0, dtype=np.float32)
+    z_left = np.stack([embeddings[c.left] for c in comparisons])
+    z_right = np.stack([embeddings[c.right] for c in comparisons])
     y = np.array([c.label for c in comparisons], dtype=np.float32)
-    return x, y
+    return z_left, z_right, y
+
+
+def teacher_split(
+    comparisons: list[Comparison], holdout: float
+) -> tuple[list[Comparison], list[Comparison]]:
+    """Deterministic train/held-out split of teacher pairs.
+
+    Hashed on the pair id rather than shuffled, so the split is stable across
+    runs and independent of file order — two runs made minutes apart, or
+    after teacher.jsonl has grown, still hold out the same pairs.
+    """
+    import hashlib
+
+    train: list[Comparison] = []
+    held: list[Comparison] = []
+    for c in comparisons:
+        digest = hashlib.sha256(f"{c.left}|{c.right}".encode()).digest()
+        bucket = digest[0] / 256.0  # deterministic pseudo-uniform in [0, 1)
+        (held if bucket < holdout else train).append(c)
+    return train, held
 
 
 def load_teacher(path: Path, tie_margin: float) -> list[Comparison]:
@@ -444,6 +692,52 @@ def main() -> None:
         "uses the far larger teacher pool; 'train' keeps the label pool's own "
         "basis, isolating the prior's contribution from the basis change.",
     )
+    parser.add_argument(
+        "--head",
+        choices=("linear", "mlp"),
+        default="linear",
+        help="scorer architecture: a weighted sum, or a one-hidden-layer MLP "
+        "(default: linear, so the documented repro command keeps working).",
+    )
+    parser.add_argument(
+        "--hidden", type=int, default=16, help="hidden units for --head mlp (default: 16)"
+    )
+    parser.add_argument(
+        "--activation",
+        choices=ACTIVATIONS,
+        default="relu",
+        help="hidden non-linearity for --head mlp (default: relu). tanh is linear "
+        "near the origin, so an L2 penalty anchored at zero can shrink it into "
+        "that regime and collapse the network onto a linear function; relu's "
+        "kink sits at a fixed input, not a weight scale, so it cannot.",
+    )
+    parser.add_argument(
+        "--compare-linear-artifact",
+        type=Path,
+        help="a previously-saved linear ranker.npz directory to correlate "
+        "against in the --head mlp collapse diagnostic. Optional.",
+    )
+    parser.add_argument(
+        "--teacher-holdout",
+        type=float,
+        default=0.2,
+        help="fraction of teacher pairs held out of pretraining, to measure "
+        "teacher fit honestly instead of in-sample (default: 0.2)",
+    )
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        default=3,
+        help="random restarts for --head mlp, best kept by validation accuracy "
+        "(default: 3; irrelevant to --head linear, whose fit is deterministic)",
+    )
+    parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        default=ARTIFACT_DIR,
+        help="where to write ranker.npz / ranker.json (default: models/ranker, "
+        "the shipped location — point elsewhere for experiment runs)",
+    )
     args = parser.parse_args()
 
     selected = (
@@ -469,7 +763,6 @@ def main() -> None:
 
     teacher: list[Comparison] = []
     teacher_reduced: dict[str, np.ndarray] = {}
-    prior: np.ndarray | None = None
 
     if args.teacher:
         # The teacher pool is tens of thousands of images, so it estimates the
@@ -502,55 +795,148 @@ def main() -> None:
         embeddings, project(np.stack(list(embeddings.values())), centre, basis), strict=True
     )}
 
-    x_train, y_train = build_matrix(by_split["train"], reduced)
-    x_val, y_val = build_matrix(by_split["val"], reduced)
+    x_train_l, x_train_r, y_train = build_pairs(by_split["train"], reduced)
+    x_val_l, x_val_r, y_val = build_pairs(by_split["val"], reduced)
 
+    teacher_report = None
     if args.teacher:
-        x_teacher, y_teacher = build_matrix(teacher, teacher_reduced)
-        print(f"\npretraining on {len(y_teacher)} teacher pairs ({args.dims} dims)")
+        teacher_train, teacher_held = teacher_split(teacher, args.teacher_holdout)
+        tt_l, tt_r, tt_y = build_pairs(teacher_train, teacher_reduced)
+        th_l, th_r, th_y = build_pairs(teacher_held, teacher_reduced)
+        print(
+            f"\npretraining on {len(tt_y)} teacher pairs ({args.dims} dims), "
+            f"{len(th_y)} held out for an honest fidelity check"
+        )
         # Thousands of teacher pairs support a much lighter penalty than a few
         # hundred human ones, so the pretraining step is regularised separately.
-        prior = fit_ranker(x_teacher, y_teacher, 0.01)
-        teacher_accuracy, teacher_n = accuracy(x_teacher, y_teacher, prior)
-        print(f"  teacher fit: {teacher_accuracy:.3f} on n={teacher_n}")
-        zero_shot, zero_n = accuracy(x_val, y_val, prior)
+        # Selection uses human val, never the teacher held-out set itself — the
+        # decisive number must not also be the number used to pick the model.
+        prior, prior_seed = fit_best_of_seeds(
+            tt_l, tt_r, tt_y, 0.01,
+            head=args.head, hidden=args.hidden, activation=args.activation,
+            prior=None, seeds=args.seeds,
+            select_left=x_val_l, select_right=x_val_r, select_y=y_val,
+        )
+        prior_scorer = make_scorer(prior, args.head, args.activation)
+        teacher_accuracy, teacher_n = accuracy(tt_l, tt_r, tt_y, prior_scorer)
+        teacher_held_accuracy, teacher_held_n = accuracy(th_l, th_r, th_y, prior_scorer)
+        held_low, held_high = wilson_interval(teacher_held_accuracy, teacher_held_n)
+        zero_shot, zero_n = accuracy(x_val_l, x_val_r, y_val, prior_scorer)
+        if args.head == "mlp":
+            print(f"  best seed: {prior_seed}")
+        print(f"  teacher fit (in-sample): {teacher_accuracy:.3f} on n={teacher_n}")
+        print(
+            f"  teacher fit (held-out):  {teacher_held_accuracy:.3f}  "
+            f"95% CI [{held_low:.3f}, {held_high:.3f}]  (n={teacher_held_n})"
+        )
         print(f"  BEFORE any human label, on human val: {zero_shot:.3f} (n={zero_n})")
         print("  That number is the honest measure of what distillation bought.")
+        teacher_report = {
+            "holdout": args.teacher_holdout,
+            "inSample": {"accuracy": teacher_accuracy, "n": teacher_n},
+            "heldOut": {
+                "accuracy": teacher_held_accuracy,
+                "ci": [held_low, held_high],
+                "n": teacher_held_n,
+            },
+            "zeroShotValAccuracy": zero_shot,
+        }
+    prior_params: dict[str, np.ndarray] | None = prior if args.teacher else None
 
-    print(f"\nsweeping L2 on the validation split ({args.dims} dims)")
-    if prior is not None:
-        print("  (L2 now pulls towards the teacher's weights, not towards zero)")
-    best = (None, -1.0, 0.0)
+    print(f"\nsweeping L2 on the validation split ({args.dims} dims, head={args.head})")
+    if prior_params is not None:
+        print("  (L2 now pulls towards the teacher's parameters, not towards zero)")
+    best = (None, -1.0, 0.0, 0)
     for l2 in (0.001, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0):
-        weights = fit_ranker(x_train, y_train, l2, prior=prior)
-        train_accuracy, _ = accuracy(x_train, y_train, weights)
-        val_accuracy, val_n = accuracy(x_val, y_val, weights)
+        params, seed = fit_best_of_seeds(
+            x_train_l, x_train_r, y_train, l2,
+            head=args.head, hidden=args.hidden, activation=args.activation,
+            prior=prior_params, seeds=args.seeds,
+            select_left=x_val_l, select_right=x_val_r, select_y=y_val,
+        )
+        scorer = make_scorer(params, args.head, args.activation)
+        train_accuracy, _ = accuracy(x_train_l, x_train_r, y_train, scorer)
+        val_accuracy, val_n = accuracy(x_val_l, x_val_r, y_val, scorer)
         print(f"  l2={l2:<7} train={train_accuracy:.3f}  val={val_accuracy:.3f}  (n={val_n})")
         if val_accuracy > best[1]:
-            best = (weights, val_accuracy, l2)
+            best = (params, val_accuracy, l2, seed)
 
-    weights, val_accuracy, l2 = best
+    params, val_accuracy, l2, seed = best
     print(f"\nbest: l2={l2}, val={val_accuracy:.3f}")
+    if args.head == "mlp":
+        print(f"  best seed: {seed}")
     print("A coin flip scores 0.500. Treat anything inside the interval as unproven.")
 
     test_report = None
     if args.report_test:
-        x_test, y_test = build_matrix(by_split["test"], reduced)
-        test_accuracy, test_n = accuracy(x_test, y_test, weights)
+        x_test_l, x_test_r, y_test = build_pairs(by_split["test"], reduced)
+        scorer = make_scorer(params, args.head, args.activation)
+        test_accuracy, test_n = accuracy(x_test_l, x_test_r, y_test, scorer)
         low, high = wilson_interval(test_accuracy, test_n)
         print(f"\nTEST: {test_accuracy:.3f}  95% CI [{low:.3f}, {high:.3f}]  (n={test_n})")
         test_report = {"accuracy": test_accuracy, "ci": [low, high], "n": test_n}
     else:
         print("\nTest split untouched. Pass --report-test once the design is frozen.")
 
-    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    artifact = ARTIFACT_DIR / "ranker.npz"
-    np.savez(artifact, centre=centre, basis=basis, weights=weights)
-    (ARTIFACT_DIR / "ranker.json").write_text(
+    diagnostic = None
+    if args.head == "mlp":
+        pool_z = np.stack(list(reduced.values()))
+        compare_score = None
+        if args.compare_linear_artifact:
+            compare_scorer_by_id = load_scorer(args.compare_linear_artifact, embeddings)
+            pool_stems = list(reduced.keys())
+
+            def compare_score(_z: np.ndarray, _stems: list[str] = pool_stems) -> np.ndarray:
+                # collapse_diagnostic scores by array position, but the linear
+                # artifact's loader scores by image id — reassemble in the same
+                # order pool_z (and therefore `_z`) was built in.
+                return np.array([compare_scorer_by_id(s) for s in _stems])
+
+        diagnostic = collapse_diagnostic(params, args.activation, pool_z, compare_score)
+        print(
+            f"\ncollapse diagnostic ({args.activation}, hidden={args.hidden}, "
+            f"n={diagnostic['nImages']} pool images):"
+        )
+        print(
+            f"  |pre-activation|: mean={diagnostic['meanAbsPreActivation']:.3f}  "
+            f"max={diagnostic['maxAbsPreActivation']:.3f}"
+        )
+        print(
+            f"  fraction of score std NOT explained by a straight line through z: "
+            f"{diagnostic['nonlinearStdFraction']:.3f}"
+        )
+        if "corrWithLinear" in diagnostic:
+            print(f"  corr(mlp, linear) over the pool: {diagnostic['corrWithLinear']:.4f}")
+            if diagnostic["collapsed"]:
+                print(
+                    "  COLLAPSED: correlation with the linear model exceeds 0.99. "
+                    "This config computed an approximately linear function — its "
+                    "accuracy numbers above are not evidence about a non-linear "
+                    "function class, only about this particular (collapsed) fit."
+                )
+        else:
+            print("  (no --compare-linear-artifact given; corr(mlp, linear) not computed)")
+
+    args.artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact = args.artifact_dir / "ranker.npz"
+    if args.head == "linear":
+        np.savez(artifact, centre=centre, basis=basis, weights=params["weights"])
+    else:
+        np.savez(
+            artifact,
+            centre=centre, basis=basis,
+            w1=params["w1"], b1=params["b1"], w2=params["w2"],
+            activation=np.array(args.activation),
+        )
+    (args.artifact_dir / "ranker.json").write_text(
         json.dumps(
             {
-                "version": RANKER_VERSION,
+                "version": RANKER_VERSIONS[args.head],
                 "encoder": ENCODER,
+                "head": args.head,
+                "hidden": args.hidden if args.head == "mlp" else None,
+                "activation": args.activation if args.head == "mlp" else None,
+                "collapseDiagnostic": diagnostic,
                 "dims": args.dims,
                 "l2": l2,
                 "trainPairs": counts["train"],
@@ -559,6 +945,7 @@ def main() -> None:
                 "raters": sorted({c.rater for c in comparisons}),
                 "ratersRequested": sorted(selected) if selected else "all",
                 "teacherPairs": len(teacher) if teacher else 0,
+                "teacher": teacher_report,
                 "projectionFittedOn": (
                     f"{args.projection}-pool" if args.teacher else "train-images"
                 ),
@@ -568,7 +955,11 @@ def main() -> None:
         + "\n",
         encoding="utf-8",
     )
-    print(f"saved {artifact.relative_to(REPO_ROOT)}")
+    try:
+        location = artifact.relative_to(REPO_ROOT)
+    except ValueError:
+        location = artifact
+    print(f"saved {location}")
 
 
 if __name__ == "__main__":
