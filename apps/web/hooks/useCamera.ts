@@ -21,6 +21,45 @@ const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
   audio: false,
 };
 
+/** Ultra-wide, so a whole outfit fits in frame without stepping back. */
+export const TARGET_ZOOM = 0.5;
+
+/** `zoom` is a real MediaTrack property but is absent from lib.dom. */
+type ZoomRange = { min?: number; max?: number };
+type ZoomCapabilities = MediaTrackCapabilities & { zoom?: ZoomRange };
+type ZoomConstraint = MediaTrackConstraintSet & { zoom?: number };
+
+/**
+ * Picks the zoom to request from what the camera actually offers.
+ *
+ * A built-in laptop camera has no ultra-wide lens and reports a minimum of 1,
+ * so clamping rather than failing gives the widest framing that hardware can
+ * manage. Returns null when the camera does not expose zoom at all.
+ */
+export function resolveZoom(range: ZoomRange | undefined, target = TARGET_ZOOM): number | null {
+  if (!range || typeof range.min !== "number" || typeof range.max !== "number") return null;
+  if (range.max < range.min) return null;
+  return Math.min(Math.max(target, range.min), range.max);
+}
+
+/**
+ * Applied after the stream exists rather than as a getUserMedia constraint:
+ * requesting an unsupported zoom up front fails the whole camera request.
+ */
+async function applyWideZoom(stream: MediaStream): Promise<void> {
+  for (const track of stream.getVideoTracks()) {
+    const capabilities = track.getCapabilities?.() as ZoomCapabilities | undefined;
+    const zoom = resolveZoom(capabilities?.zoom);
+    if (zoom === null) continue;
+    try {
+      await track.applyConstraints({ advanced: [{ zoom } as ZoomConstraint] });
+    } catch {
+      // Some drivers advertise zoom and then refuse to set it. The feed is
+      // still usable, so carry on at the default framing.
+    }
+  }
+}
+
 export function useCamera(autoStart = true) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [status, setStatus] = useState<CameraStatus>("idle");
@@ -61,6 +100,8 @@ export function useCamera(autoStart = true) {
         nextStream.getTracks().forEach((track) => track.stop());
         return null;
       }
+
+      await applyWideZoom(nextStream);
 
       streamRef.current = nextStream;
       setStream(nextStream);
