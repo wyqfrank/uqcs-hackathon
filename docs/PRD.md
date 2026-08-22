@@ -91,11 +91,11 @@ Last verified against the working tree on 2026-08-22.
 - [x] Production build passes (`npm run build`).
 - [x] Signalling smoke test passes (`npm run test:signaling`) — create, join,
       capacity, SDP relay, and reconnect.
-- [x] Web unit tests pass: 28 tests across 7 files covering scoring, garment
+- [x] Web unit tests pass: 40 tests across 8 files covering scoring, garment
       perception, frame capture, and the CV modules.
-- [x] Scoring coordinator tests pass: 17 tests covering readiness, countdown,
+- [x] Scoring coordinator tests pass: 21 tests covering readiness, countdown,
       burst capture, fallback, backpressure, stale work, and reconnect replay.
-- [x] Python inference tests pass: 60 passed, 1 skipped, covering the API,
+- [x] Python inference tests pass: 63 passed, 1 skipped, covering the API,
       perception, RF-DETR, scoring and VLM engine. Requires `npm run setup`,
       which installs the `dev,vlm` extras; a stale virtualenv predating the
       `vlm` extra fails at collection because three test modules import `PIL`.

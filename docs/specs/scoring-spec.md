@@ -32,8 +32,8 @@ remain unsettled.
 - [ ] Live-to-final continuity targets are measured on representative webcam
   battles and the live display is tuned or reduced to the qualitative fallback.
 
-Automated verification on 2026-08-22 passes TypeScript typecheck, 28 web unit
-tests, 17 Node coordinator tests, 60 Python/API tests, Ruff, and the production
+Automated verification on 2026-08-22 passes TypeScript typecheck, 40 web unit
+tests, 21 Node coordinator tests, 63 Python/API tests, Ruff, and the production
 build. The signalling smoke test could not be rerun while the user's existing
 Next dev server held the development lock; its prior passing status is unchanged.
 The credentialed Gemini smoke test is present but skipped by default; visual
