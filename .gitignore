@@ -27,3 +27,6 @@ wandb/
 # training artifact, and the WASM runtime beside it is useless without it.
 !apps/web/public/mediapipe/models/
 !apps/web/public/mediapipe/models/**
+
+# Leaderboard store (per-machine game records)
+.data/

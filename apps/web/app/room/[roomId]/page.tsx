@@ -1,4 +1,4 @@
-import { BattleRoom } from "@/components/BattleRoom";
+import { BattleEntry } from "@/components/BattleEntry";
 
 export default async function RoomPage({
   params,
@@ -9,5 +9,5 @@ export default async function RoomPage({
 }) {
   const { roomId } = await params;
   const { mode } = await searchParams;
-  return <BattleRoom roomId={roomId.toUpperCase()} role={mode === "create" ? "host" : "guest"} />;
+  return <BattleEntry roomId={roomId.toUpperCase()} role={mode === "create" ? "host" : "guest"} />;
 }

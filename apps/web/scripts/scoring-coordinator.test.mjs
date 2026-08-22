@@ -443,3 +443,99 @@ test("disconnect clears pending work and an empty room clears readiness", async 
   coordinator.leave(guest.id);
   assert.equal(coordinator.readinessRooms.has("FIT-1234"), false);
 });
+
+test("records both players against the leaderboard when a battle finalises", async () => {
+  const recorded = [];
+  const io = new FakeIo();
+  const coordinator = new ScoringCoordinator({
+    io,
+    inferenceUrl: "http://inference.test",
+    leaderboard: { recordBattle: (players) => { recorded.push(players); return Promise.resolve([]); } },
+  });
+  const host = new FakeSocket("host-socket");
+  const guest = new FakeSocket("guest-socket");
+  coordinator.attachSocket(host);
+  coordinator.attachSocket(guest);
+  coordinator.assignPlayer(host, "FIT-1234", "host", "Angus");
+  coordinator.assignPlayer(guest, "FIT-1234", "guest", "Frank");
+
+  coordinator.recordStandings("FIT-1234", {
+    playerAScore: 82.4,
+    playerBScore: 77.1,
+    winner: "player_a",
+  });
+
+  assert.deepEqual(recorded, [[
+    { name: "Angus", score: 82.4, won: true },
+    { name: "Frank", score: 77.1, won: false },
+  ]]);
+});
+
+test("credits nobody a win on a draw", async () => {
+  const recorded = [];
+  const io = new FakeIo();
+  const coordinator = new ScoringCoordinator({
+    io,
+    inferenceUrl: "http://inference.test",
+    leaderboard: { recordBattle: (players) => { recorded.push(players); return Promise.resolve([]); } },
+  });
+  const host = new FakeSocket("host-socket");
+  const guest = new FakeSocket("guest-socket");
+  coordinator.attachSocket(host);
+  coordinator.attachSocket(guest);
+  coordinator.assignPlayer(host, "FIT-1234", "host", "Angus");
+  coordinator.assignPlayer(guest, "FIT-1234", "guest", "Frank");
+
+  coordinator.recordStandings("FIT-1234", {
+    playerAScore: 70,
+    playerBScore: 70,
+    winner: "draw",
+  });
+
+  assert.deepEqual(recorded[0].map((player) => player.won), [false, false]);
+});
+
+test("skips unnamed players rather than recording a blank entry", async () => {
+  const recorded = [];
+  const io = new FakeIo();
+  const coordinator = new ScoringCoordinator({
+    io,
+    inferenceUrl: "http://inference.test",
+    leaderboard: { recordBattle: (players) => { recorded.push(players); return Promise.resolve([]); } },
+  });
+  const host = new FakeSocket("host-socket");
+  const guest = new FakeSocket("guest-socket");
+  coordinator.attachSocket(host);
+  coordinator.attachSocket(guest);
+  coordinator.assignPlayer(host, "FIT-1234", "host", "Angus");
+  coordinator.assignPlayer(guest, "FIT-1234", "guest", "");
+
+  coordinator.recordStandings("FIT-1234", {
+    playerAScore: 60,
+    playerBScore: 50,
+    winner: "player_a",
+  });
+
+  assert.deepEqual(recorded, [[{ name: "Angus", score: 60, won: true }]]);
+});
+
+test("a leaderboard failure does not surface to the battle", async () => {
+  const io = new FakeIo();
+  const coordinator = new ScoringCoordinator({
+    io,
+    inferenceUrl: "http://inference.test",
+    leaderboard: { recordBattle: () => Promise.reject(new Error("disk full")) },
+  });
+  const host = new FakeSocket("host-socket");
+  coordinator.attachSocket(host);
+  coordinator.assignPlayer(host, "FIT-1234", "host", "Angus");
+
+  assert.doesNotThrow(() =>
+    coordinator.recordStandings("FIT-1234", {
+      playerAScore: 60,
+      playerBScore: 50,
+      winner: "player_a",
+    }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+});
