@@ -1277,4 +1277,33 @@ kbd {
 
 @media (max-width: 800px) {
   .label-pair { grid-template-columns: 1fr; }
+/* --- Landing leaderboard link ------------------------------------------- */
+/* A quieter third action: it leaves the battle flow rather than starting one,
+   so it sits below the primary and secondary buttons without competing. */
+.leaderboard-link {
+  margin-top: 18px;
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  border: 2px solid var(--panel-3);
+  background: transparent;
+  color: var(--text-dim);
+  transform: skewX(var(--skew));
+  font-family: var(--font-arcade), monospace;
+  font-style: italic;
+  font-weight: 800;
+  text-transform: uppercase;
+  transition: color .12s, border-color .12s, transform .12s;
+}
+.leaderboard-link > * { transform: skewX(var(--unskew)); }
+/* Smaller than the two battle actions above it, but on the same scale so it
+   reads as part of the stack rather than as fine print. */
+.leaderboard-link b { flex: 1; text-align: left; font-size: 1.15rem; letter-spacing: .08em; }
+.leaderboard-link svg { width: 18px; flex: none; }
+.leaderboard-link:hover, .leaderboard-link:focus-visible {
+  color: var(--ko);
+  border-color: var(--ko-dark);
 }

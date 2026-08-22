@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Plus, Swords } from "lucide-react";
+import { ArrowRight, Plus, Swords, Trophy } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -76,6 +77,12 @@ export default function LandingPage() {
             </Button>
           </div>
           {error && <p className="form-error">{error}</p>}
+
+          <Link href="/leaderboard" className="leaderboard-link">
+            <Trophy aria-hidden="true" />
+            <b>VIEW LEADERBOARD</b>
+            <ArrowRight aria-hidden="true" />
+          </Link>
         </div>
       </section>
 
