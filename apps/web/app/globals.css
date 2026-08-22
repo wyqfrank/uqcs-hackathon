@@ -799,6 +799,29 @@ button:focus-visible, input:focus-visible {
   font-size: .85rem;
   letter-spacing: .1em;
 }
+.battle-result .battle-countdown {
+  color: var(--ko);
+  font-family: var(--font-arcade), monospace;
+  font-size: clamp(2rem, 5vw, 3.6rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .08em;
+  -webkit-text-stroke: 0;
+  text-shadow: 3px 3px 0 #000, 0 0 18px rgba(255, 214, 0, .35);
+  transform: none;
+}
+.round-readiness {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 7px;
+}
+.round-readiness span {
+  display: inline;
+  color: var(--text-faint);
+  font-size: .9rem;
+  letter-spacing: .12em;
+}
+.round-readiness span.is-ready { color: var(--p2); }
 
 /* Control dock ----------------------------------------------------------- */
 

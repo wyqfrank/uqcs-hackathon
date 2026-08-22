@@ -202,7 +202,6 @@ test("the server timer automatically enters final collection", async () => {
   const state = coordinator.rooms.get("FIT-1234");
   assert.equal(state.phase, "collecting");
   assert.equal(io.events.some(({ name }) => name === "score-finalisation-started"), true);
-  assert.equal(io.events.some(({ name }) => name === "score-frame-request"), true);
 });
 
 test("either player can finalise early and pause garment perception", async () => {

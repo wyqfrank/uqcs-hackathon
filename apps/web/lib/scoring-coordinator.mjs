@@ -488,6 +488,7 @@ export class ScoringCoordinator {
       finalisationId: state.finalisationId,
       requestId: slot.requestId,
       burstIndex: slot.burstIndex,
+      serverNow: this.now(),
       deadlineAt: slot.deadlineAt,
     });
     const timer = setTimeout(

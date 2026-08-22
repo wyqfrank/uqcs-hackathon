@@ -6,6 +6,14 @@ export type PlayerScoreBreakdown = {
   observations: string[];
 };
 
+export type ScoreSamplePair = {
+  burstIndex: number;
+  playerASampleId: string;
+  playerBSampleId: string;
+  playerACapturedAtMs: number;
+  playerBCapturedAtMs: number;
+};
+
 export type FinalScoreResult = {
   phase: "final";
   battleId: string;
@@ -15,6 +23,7 @@ export type FinalScoreResult = {
   playerBSampleId: string;
   playerACapturedAtMs: number;
   playerBCapturedAtMs: number;
+  samplePairs: ScoreSamplePair[];
   modelVersion: string;
   promptVersion: string;
   scoringVersion: string;
@@ -44,6 +53,7 @@ export type NotScoreableResult = {
   playerBSampleId: string | null;
   playerACapturedAtMs: number | null;
   playerBCapturedAtMs: number | null;
+  samplePairs: ScoreSamplePair[];
   reasonCode: string;
   message: string;
   retryable: boolean;
@@ -55,11 +65,20 @@ export type NotScoreableResult = {
 export type ScoreResult = FinalScoreResult | NotScoreableResult;
 
 export type BattleScoringState =
-  | { phase: "ready" }
+  | {
+      phase: "waiting_ready";
+      playerAReady: boolean;
+      playerBReady: boolean;
+    }
+  | { phase: "countdown"; roundId: string; secondsRemaining: number }
   | { phase: "collecting"; finalisationId: string }
   | { phase: "analysing"; finalisationId: string }
   | { phase: "final"; result: FinalScoreResult }
   | { phase: "not_scoreable"; result: NotScoreableResult };
+
+export function countdownSeconds(deadline: number, now: number): number {
+  return Math.max(0, Math.ceil((deadline - now) / 1000));
+}
 
 export function scoresForRole(result: FinalScoreResult, role: "host" | "guest") {
   return role === "host"

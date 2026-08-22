@@ -8,6 +8,7 @@ import { useCamera } from "@/hooks/useCamera";
 import { useGarmentPerception } from "@/hooks/useGarmentPerception";
 import { useOutfitDetection } from "@/hooks/useOutfitDetection";
 import { useWebRTC, type ConnectionState } from "@/hooks/useWebRTC";
+import { CV_CONFIG } from "@/lib/cv/config";
 import { scoresForRole } from "@/lib/scoring";
 import type { RoomRole } from "@/lib/signaling";
 import { BattleResult } from "./BattleResult";
@@ -29,7 +30,18 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
   const camera = useCamera(true);
   const rtc = useWebRTC(roomId, role, camera.stream);
   const outfitDetection = useOutfitDetection(localVideoRef, Boolean(camera.stream));
-  const scoring = useBattleScoring(roomId, rtc.socket, outfitDetection);
+  const localScoreReady =
+    rtc.connectionState === "connected"
+    && camera.status === "ready"
+    && outfitDetection.detectorState === "ready"
+    && outfitDetection.result?.scoreable === true
+    && performance.now() - outfitDetection.result.capturedAt <= CV_CONFIG.maximumResultAgeMs;
+  const scoring = useBattleScoring(
+    roomId,
+    rtc.socket,
+    outfitDetection,
+    localScoreReady,
+  );
   const garmentPerception = useGarmentPerception(
     roomId,
     role,
@@ -46,7 +58,8 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
   const canFinalise =
     rtc.connectionState === "connected"
     && !scoring.isBusy
-    && !scoring.isLocked;
+    && !scoring.isLocked
+    && ["countdown", "not_scoreable"].includes(scoring.state.phase);
 
   const copyRoomCode = async () => {
     await navigator.clipboard.writeText(roomId);
@@ -163,7 +176,9 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
                   ? "SCORE FINAL"
                   : scoring.state.phase === "not_scoreable"
                     ? "RETRY SCORE"
-                    : "FINALISE SCORE"}
+                    : scoring.state.phase === "countdown"
+                      ? "FINALISE EARLY"
+                      : "WAITING FOR READY"}
           </span>
         </Button>
         <Button variant="bare" size="bare" aria-label="Copy room code" onClick={() => void copyRoomCode()}><Copy aria-hidden="true" /><span>{copied ? "COPIED" : "COPY CODE"}</span></Button>
