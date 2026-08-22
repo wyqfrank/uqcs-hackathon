@@ -377,3 +377,31 @@ def test_prompt_states_the_all_or_nothing_score_contract() -> None:
         assert "body_fit" in prompt, version
         # It must also say when omission is allowed, or the model may omit all.
         assert "unusable" in prompt, version
+
+
+def test_provider_schema_requires_every_scored_field() -> None:
+    """
+    Gemini follows the JSON schema over the prompt. With the scores optional it
+    omitted body_fit, and the validator — which demands all four for a
+    judgeable player — rejected every assessment.
+    """
+    from fitted_inference.vlm import assessment_response_schema
+
+    player = assessment_response_schema()["$defs"]["VlmPlayerAssessment"]
+    assert set(player["required"]) == {
+        "frame_quality",
+        "component_quality",
+        "outfit_coordination",
+        "body_fit",
+        "vlm_holistic",
+    }
+
+
+def test_provider_schema_still_permits_null_scores_for_unusable_imagery() -> None:
+    from fitted_inference.vlm import assessment_response_schema
+
+    player = assessment_response_schema()["$defs"]["VlmPlayerAssessment"]
+    body_fit = player["properties"]["body_fit"]
+    # Required means "must be present", not "must be a number": an unusable
+    # player still has to be able to report nulls.
+    assert {"type": "null"} in body_fit["anyOf"]

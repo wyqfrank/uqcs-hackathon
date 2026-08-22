@@ -43,6 +43,29 @@ outfit per player across the complete sequence; do not score individual frames s
 
 VlmImage = tuple[bytes, str]
 
+# Scores are optional on the model so the unusable case can carry nulls, which
+# makes them optional in the generated JSON schema too. Gemini follows that
+# schema over any prose, so it simply omitted body_fit and every assessment
+# failed validation. Requiring the keys forces an explicit value — a number, or
+# null for unusable imagery — instead of silent omission.
+PLAYER_REQUIRED_FIELDS = (
+    "frame_quality",
+    "component_quality",
+    "outfit_coordination",
+    "body_fit",
+    "vlm_holistic",
+)
+
+
+def assessment_response_schema() -> dict:
+    """The assessment schema with every scored field required, for the provider."""
+    schema = VlmAssessment.model_json_schema()
+    player = schema.get("$defs", {}).get("VlmPlayerAssessment")
+    if player is not None:
+        present = [name for name in PLAYER_REQUIRED_FIELDS if name in player.get("properties", {})]
+        player["required"] = present
+    return schema
+
 
 class VlmPlayerAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -197,7 +220,7 @@ class GeminiVlmProvider:
                 response_format={
                     "type": "text",
                     "mime_type": "application/json",
-                    "schema": VlmAssessment.model_json_schema(),
+                    "schema": assessment_response_schema(),
                 },
                 store=False,
                 timeout=self._timeout_seconds,
