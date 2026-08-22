@@ -84,7 +84,7 @@ export class ScoringCoordinator {
     fetchImpl = fetch,
     now = Date.now,
     createId = randomUUID,
-    roundDurationMs = 30000,
+    roundDurationMs = 5000,
     collectionTimeoutMs = 3000,
     burstOffsetsMs = [0, 750, 1500],
     burstSlotTimeoutMs = 650,

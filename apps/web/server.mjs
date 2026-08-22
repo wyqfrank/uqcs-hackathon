@@ -24,10 +24,10 @@ for (const envFile of [".env", ".env.local"]) {
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
-const configuredRoundDurationMs = Number(process.env.FITTED_ROUND_DURATION_MS || 30000);
+const configuredRoundDurationMs = Number(process.env.FITTED_ROUND_DURATION_MS || 5000);
 const roundDurationMs = Number.isFinite(configuredRoundDurationMs) && configuredRoundDurationMs > 0
   ? configuredRoundDurationMs
-  : 30000;
+  : 5000;
 const configuredBurstBytes = Number(process.env.FITTED_MAX_BURST_BYTES || 15 * 1024 * 1024);
 const maxBurstBytes = Number.isFinite(configuredBurstBytes) && configuredBurstBytes > 0
   ? configuredBurstBytes

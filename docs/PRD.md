@@ -46,7 +46,7 @@ This checklist is the high-level source of truth for specification and implement
 - [x] Video-frame capture and latest-frame backpressure are implemented.
 - [x] Battle UI supports framing readiness, finalisation states, authoritative
       results, copying the room code, and a clearly labelled demo-only live estimate.
-- [x] Both score-ready players start one server-authoritative 30-second round;
+- [x] Both score-ready players start one server-authoritative 5-second round;
       disconnects cancel it and either player can finalise early.
 - [x] Person/pose detection and frame-quality gating are implemented.
 - [x] Canonical padded outfit cropping is implemented, with feet treated as optional evidence.
@@ -251,7 +251,7 @@ remove the live numbers and retain only a qualitative current-leader treatment.
 Do not imply that the range is a calibrated confidence interval.
 
 When both players are connected and locally score-ready, the server starts one
-30-second round. At zero, or when either player finalises early, both clients
+5-second round. At zero, or when either player finalises early, both clients
 enter the same final capture path and then **Analysing final result**. The server
 captures three current paired crops approximately 750 ms apart, scores the
 available one-to-three complete pairs in one request, broadcasts exact
@@ -884,7 +884,7 @@ Only record choices here once the team has agreed to them.
 | Signalling               | Socket.IO                                                                | Current prototype choice   | Used for rooms and WebRTC negotiation                                                                                                            |
 | Result format            | Labelled demo live estimates, then exact final scores and a winner or draw | Decided for hackathon | The bounded seeded estimate is presentation-only; only server finalisation can lock the verdict |
 | Live estimate            | Shared seeded values in `55..85`, updated every 500 ms                   | Implemented for demo       | Replace with calibrated learned ranges later; never use the demo value to determine the final winner |
-| Round lifecycle          | Start one server-owned 30-second round when both players are score-ready; either player may finalise early | Implemented for hackathon | Clients derive the display deadline from server timestamps and never independently finalise at zero |
+| Round lifecycle          | Start one server-owned 5-second round when both players are score-ready; either player may finalise early | Implemented for hackathon | Clients derive the display deadline from server timestamps and never independently finalise at zero |
 | Live-to-final continuity | Calibrate the live band against the final scorer                         | Decided for hackathon      | Start at ±5 points, target 80% coverage, widen to at most 16 total points, then fall back to qualitative live status rather than false precision |
 | ML target                | Preference of the defined FITTED target audience                         | Current direction          | Social popularity supplies weak supervision; audience judgements calibrate the target                                                            |
 | ML formulation           | Source experts combined into a pairwise FITTED score                     | Current direction          | Instagram and Depop first; style momentum later if useful                                                                                        |

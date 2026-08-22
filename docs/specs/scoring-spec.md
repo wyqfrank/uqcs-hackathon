@@ -1,6 +1,6 @@
 # Scoring model specification
 
-**Status:** The server-authoritative 30-second round and one-to-three-pair final
+**Status:** The server-authoritative 5-second round and one-to-three-pair final
 VLM burst are implemented and covered by automated tests. Real-provider,
 browser-visual, two-device, learned live scoring, training, and representative
 evaluation work remains pending. A labelled bounded demo estimate is implemented
@@ -25,7 +25,7 @@ remain unsettled.
 - [ ] The learned provisional live-range UI is implemented and tested.
 - [x] Finalisation locks an exact server-authoritative result in the coordinator
   and both client roles map that result consistently.
-- [x] Both locally score-ready roles start one server-owned 30-second round, with
+- [x] Both locally score-ready roles start one server-owned 5-second round, with
   early finalisation and disconnect cancellation handled by the coordinator.
 - [x] Finalisation captures three time-spaced slots and sends all available
   complete pairs to Gemini in one request.
@@ -122,7 +122,7 @@ been measured.
 
 ### Final authoritative mode
 
-When both players become locally score-ready, the server starts a 30-second
+When both players become locally score-ready, the server starts a 5-second
 countdown. At zero, or when either player finalises early, stop accepting live
 garment updates and capture three current synchronised slots approximately 750 ms
 apart using each browser's latest valid outfit crop geometry. A stable buffered
@@ -240,7 +240,7 @@ boundary remains provider-neutral so this decision can be revisited later.
 ### Request flow
 
 ```text
-both locally score-ready -> server starts one 30-second round
+both locally score-ready -> server starts one 5-second round
   -> timer reaches zero or either player finalises early
   -> server requests paired slots at 0, 750, and 1500 ms
   -> each browser captures its current local frame with the latest valid crop
@@ -355,7 +355,7 @@ FITTED_VLM_MEDIA_RESOLUTION=high
 FITTED_VLM_TIMEOUT_SECONDS=12
 FITTED_VLM_PROMPT_VERSION=v2
 FITTED_MAX_BURST_BYTES=15728640
-FITTED_ROUND_DURATION_MS=30000
+FITTED_ROUND_DURATION_MS=5000
 ```
 
 The API key must never enter the Next.js client bundle. Each browser owns capture,
@@ -421,7 +421,7 @@ service remains stateless.
   both clients.
 - [ ] Record out-of-range final reveals and show an explicit adjusted-estimate
   transition instead of clamping the final score.
-- [x] Start one server-authoritative 30-second round when both roles are ready,
+- [x] Start one server-authoritative 5-second round when both roles are ready,
   allow either player to finalise early, and cancel on disconnect.
 - [x] On finalisation, request three paired slots approximately 750 ms apart and
   score any one-to-three complete pairs in one Gemini request.
