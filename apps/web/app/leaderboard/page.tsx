@@ -101,7 +101,7 @@ export default function LeaderboardPage() {
             onClick={() => void load()}
             disabled={refreshing}
           >
-            <RotateCw aria-hidden="true" className={refreshing ? "spin" : undefined} />
+            <span><RotateCw aria-hidden="true" className={refreshing ? "spin" : undefined} /></span>
             <b>{refreshing ? "REFRESHING…" : "REFRESH"}</b>
           </Button>
           <Link href="/" className="back-link"><ArrowLeft aria-hidden="true" /> BACK</Link>

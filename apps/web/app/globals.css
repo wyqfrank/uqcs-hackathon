@@ -269,13 +269,17 @@ button:focus-visible, input:focus-visible {
 }
 .primary-action:hover { filter: brightness(1.08); }
 .primary-action:active { transform: skewX(var(--skew)) translate(3px, 3px); box-shadow: inset 3px 3px 0 var(--ko-dark), inset -3px -3px 0 var(--ko-light); }
-.primary-action > span {
+.primary-action > span,
+.secondary-action > span {
   width: 68px;
   height: 68px;
   display: grid;
   place-items: center;
   border-right: 3px solid rgba(0, 0, 0, .28);
 }
+/* No divider on the secondary variant: the primary's reads as a shadow against
+   its orange, but on the dark panel any visible rule just draws a stray line. */
+.secondary-action > span { border-right: 0; }
 .primary-action b,
 .secondary-action b {
   flex: 1;
@@ -1525,7 +1529,6 @@ kbd {
   z-index: 40;
   display: flex;
   flex-wrap: nowrap;
-  overflow-x: auto;
   align-items: center;
   gap: 6px;
   height: 38px;
@@ -1533,6 +1536,16 @@ kbd {
   background: rgba(11, 11, 11, .94);
   border-bottom: 2px solid var(--ko-dark);
 }
+.preview-scenarios {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.preview-actions { flex: none; display: flex; align-items: center; gap: 6px; }
 .preview-bar button { flex: none; white-space: nowrap; }
 .preview-bar b {
   font-family: var(--font-arcade), monospace;
@@ -1555,14 +1568,13 @@ kbd {
 .preview-bar button.is-active { background: var(--ko); color: var(--ink); }
 /* Push the battle screen clear of the fixed switcher. */
 
-.preview-bar .preview-play { margin-left: auto; background: var(--p2-dark); color: #fff; }
+.preview-bar .preview-play { background: var(--p2-dark); color: #fff; }
 .preview-bar .preview-play.is-active { background: var(--p2); color: var(--ink); }
 
 /* Preview harness: live model mode ------------------------------------- */
 
-.preview-bar .preview-live { margin-left: auto; background: var(--p1-dark); color: #fff; }
+.preview-bar .preview-live { background: var(--p1-dark); color: #fff; }
 .preview-bar .preview-live.is-active { background: var(--p1); color: var(--ink); }
-.preview-bar .preview-live + .preview-play { margin-left: 0; }
 
 .model-readout {
   position: fixed;

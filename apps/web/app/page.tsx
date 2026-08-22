@@ -44,7 +44,7 @@ export default function LandingPage() {
       <section className="hero">
         <div className="eyebrow"><Swords /> HEAD-TO-HEAD STYLE</div>
         <h1>WHO&apos;S<br /><em>FITTED?</em></h1>
-        <p>Two fits enter. One leaves iconic.<br />Start a live camera battle and settle it.</p>
+        <p><br />Start a live camera battle and settle it.</p>
 
         <div className="landing-actions">
           <Button variant="bare" size="bare" className="primary-action" onClick={createBattle}>

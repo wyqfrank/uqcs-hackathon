@@ -92,20 +92,27 @@ export function PreviewStage() {
     <div className="preview-root">
       <nav className="preview-bar">
         <b>PREVIEW</b>
-        {SCENARIOS.map((s, i) => (
-          <button key={s.id} className={i === index && !live ? "is-active" : ""} onClick={() => { sim.stop(); setIndex(i); }}>
-            {s.label}
+        {/* Only the scenarios scroll. The actions stay pinned: there are more
+            scenarios than fit a laptop window, and an action that scrolls off
+            the edge may as well not exist. */}
+        <div className="preview-scenarios">
+          {SCENARIOS.map((s, i) => (
+            <button key={s.id} className={i === index && !live ? "is-active" : ""} onClick={() => { sim.stop(); setIndex(i); }}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="preview-actions">
+          <button
+            className={`preview-live ${liveModel ? "is-active" : ""}`}
+            onClick={() => { sim.stop(); setLiveModel((on) => !on); }}
+          >
+            {liveModel ? "■ STOP MODEL" : "◉ LIVE MODEL"}
           </button>
-        ))}
-        <button
-          className={`preview-live ${liveModel ? "is-active" : ""}`}
-          onClick={() => { sim.stop(); setLiveModel((on) => !on); }}
-        >
-          {liveModel ? "■ STOP MODEL" : "◉ LIVE MODEL"}
-        </button>
-        <button className={`preview-play ${live ? "is-active" : ""}`} onClick={sim.running ? sim.stop : sim.start}>
-          {sim.running ? "■ STOP" : "▶ PLAY ROUND"}
-        </button>
+          <button className={`preview-play ${live ? "is-active" : ""}`} onClick={sim.running ? sim.stop : sim.start}>
+            {sim.running ? "■ STOP" : "▶ PLAY ROUND"}
+          </button>
+        </div>
       </nav>
 
       <BattleStage
