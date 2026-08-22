@@ -92,4 +92,6 @@ export type OutfitDetectionController = {
   detectorState: DetectorState;
   captureCurrentCandidate(): Promise<CandidateFrame | null>;
   consumeBestCandidate(): CandidateFrame | null;
+  /** Crops the current frame ignoring quality gating, for finalisation fallback. */
+  captureFallbackCandidate(): Promise<CandidateFrame | null>;
 };

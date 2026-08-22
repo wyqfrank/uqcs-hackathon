@@ -33,6 +33,39 @@ function errorResult(roomId, state, reasonCode, message) {
   };
 }
 
+const FRAME_REASON_HINTS = {
+  partial_outfit: "not enough of the outfit was in frame",
+  too_close: "they were too close to the camera",
+  too_far: "they were too far from the camera",
+  no_person: "nobody was detected in frame",
+  multiple_people: "more than one person was in frame",
+  low_light: "the light was too low",
+  blurred: "the picture was too blurry",
+  moving_too_fast: "they were moving too much",
+  detector_unavailable: "the outfit detector was unavailable",
+};
+
+/**
+ * Explains which player failed to supply a frame, and why when the client said.
+ * "Check both cameras" sent people hunting hardware faults when the real
+ * problem was usually one player's framing.
+ */
+export function describeMissingFrames(slots) {
+  const labels = { player_a: "Player 1", player_b: "Player 2" };
+  const parts = [];
+  for (const role of ["player_a", "player_b"]) {
+    const supplied = slots.some((slot) => slot.frames?.[role]);
+    if (supplied) continue;
+    const reason = slots
+      .map((slot) => slot.reasons?.[role])
+      .find((value) => typeof value === "string" && value.length);
+    const hint = reason ? FRAME_REASON_HINTS[reason] : null;
+    parts.push(hint ? `${labels[role]}: ${hint}` : `${labels[role]} sent no usable frame`);
+  }
+  if (!parts.length) return "The two feeds could not be paired in time. Retry the score.";
+  return `${parts.join(". ")}. Reframe so the whole outfit is visible, then retry.`;
+}
+
 function toBuffer(value) {
   if (Buffer.isBuffer(value)) return value;
   if (value instanceof ArrayBuffer) return Buffer.from(value);
@@ -306,6 +339,8 @@ export class ScoringCoordinator {
         requested: false,
         settled: false,
         responses: { player_a: "pending", player_b: "pending" },
+        // Why a player could not supply a frame, so a failure can say so.
+        reasons: { player_a: null, player_b: null },
         frames: { player_a: null, player_b: null },
       })),
       result: null,
@@ -620,6 +655,8 @@ export class ScoringCoordinator {
       return;
     }
     slot.responses[player.playerRole] = "unavailable";
+    const reason = typeof payload?.reason === "string" ? payload.reason.slice(0, 64) : null;
+    if (reason && slot.reasons) slot.reasons[player.playerRole] = reason;
     if (Object.values(slot.responses).every((response) => response !== "pending")) {
       this.settleBurstSlot(player.roomId, state, slot);
     }
@@ -672,7 +709,7 @@ export class ScoringCoordinator {
         roomId,
         state,
         "frame_unavailable",
-        "Could not capture both camera feeds. Check both cameras and retry.",
+        describeMissingFrames(state.slots),
       );
       return;
     }

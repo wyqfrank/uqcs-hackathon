@@ -62,6 +62,13 @@ type FinaliseAcknowledgement =
 
 const CANDIDATE_POLL_MS = 80;
 const COUNTDOWN_TICK_MS = 100;
+/**
+ * Stop hunting for a well-framed candidate this far before the server's
+ * deadline. Polling right up to it meant the reply always landed after the slot
+ * had closed, so the server recorded "pending" — no frame and no reason — and
+ * the battle failed with a message about cameras rather than framing.
+ */
+const RESPONSE_MARGIN_MS = 220;
 
 const wait = (milliseconds: number) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
@@ -85,6 +92,9 @@ export function useBattleScoring(
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const captureCurrentCandidate = detection.captureCurrentCandidate;
   const consumeBestCandidate = detection.consumeBestCandidate;
+  const captureFallbackCandidate = detection.captureFallbackCandidate;
+  const frameStatusRef = useRef(detection.result?.stableStatus ?? null);
+  frameStatusRef.current = detection.result?.stableStatus ?? null;
   const detectorStateRef = useRef(detection.detectorState);
   detectorStateRef.current = detection.detectorState;
 
@@ -113,13 +123,24 @@ export function useBattleScoring(
       if (submittedRequestsRef.current.has(event.requestId)) return;
       submittedRequestsRef.current.add(event.requestId);
       const localDeadline = performance.now() + Math.max(0, event.deadlineAt - event.serverNow);
+      const searchUntil = localDeadline - RESPONSE_MARGIN_MS;
 
       let candidate = await captureCurrentCandidate();
       if (!candidate) candidate = consumeBestCandidate();
-      while (!candidate && active && performance.now() < localDeadline) {
+      while (!candidate && active && performance.now() < searchUntil) {
         await wait(CANDIDATE_POLL_MS);
         candidate = await captureCurrentCandidate();
         if (!candidate) candidate = consumeBestCandidate();
+      }
+
+      // Nothing passed frame-quality gating. Send the current view anyway: the
+      // scoring provider reports frame quality itself and returns null scores
+      // for an unusable player, which is a judged outcome. Submitting nothing
+      // just fails the whole battle for both players.
+      let degradedReason: string | null = null;
+      if (!candidate) {
+        candidate = await captureFallbackCandidate();
+        degradedReason = frameStatusRef.current ?? "no_stable_frame";
       }
       if (!active || activeFinalisationRef.current !== event.finalisationId) {
         candidate?.crop.close();
@@ -132,7 +153,7 @@ export function useBattleScoring(
           burstIndex: event.burstIndex,
           reason: detectorStateRef.current === "unavailable"
             ? "detector_unavailable"
-            : "no_current_frame",
+            : frameStatusRef.current ?? "no_current_frame",
         });
         return;
       }
@@ -165,6 +186,9 @@ export function useBattleScoring(
           capturedAtEpochMs,
           mimeType: blob.type,
           image,
+          // Non-null when frame-quality gating never passed, so the failure is
+          // attributable if the provider then calls the frame unusable.
+          degraded: degradedReason,
         },
         (acknowledgement: EventAcknowledgement) => {
           if (!acknowledgement.ok && active) setRequestError(acknowledgement.error);
@@ -266,7 +290,7 @@ export function useBattleScoring(
       socket.off("score-finalisation-analysing", onAnalysing);
       socket.off("score-result", onResult);
     };
-  }, [captureCurrentCandidate, consumeBestCandidate, roomId, socket]);
+  }, [captureCurrentCandidate, captureFallbackCandidate, consumeBestCandidate, roomId, socket]);
 
   const finalise = useCallback(() => {
     if (

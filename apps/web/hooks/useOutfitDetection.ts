@@ -34,12 +34,20 @@ export function useOutfitDetection(
     CandidateFrame,
     "quality" | "visibleRegions"
   > & { cropBox: NonNullable<OutfitDetectionResult["cropBox"]> } | null>(null);
+  // The most recent crop of a person, scoreable or not. Finalisation falls back
+  // to this so a badly framed player still submits something the model can
+  // grade, rather than the battle producing no result at all.
+  const latestAnyFrameRef = useRef<Pick<
+    CandidateFrame,
+    "quality" | "visibleRegions"
+  > & { cropBox: NonNullable<OutfitDetectionResult["cropBox"]> } | null>(null);
 
   useEffect(() => {
     const candidates = candidatesRef.current;
     if (!enabled) {
       candidates.clear();
       latestValidFrameRef.current = null;
+      latestAnyFrameRef.current = null;
       setResult(null);
       setDetectorState("loading");
       return;
@@ -94,6 +102,13 @@ export function useOutfitDetection(
 
       inFlight = false;
       setResult(message.result);
+      if (message.result.cropBox) {
+        latestAnyFrameRef.current = {
+          cropBox: message.result.cropBox,
+          quality: message.result.quality,
+          visibleRegions: message.result.visibleRegions,
+        };
+      }
       if (message.result.scoreable && message.result.cropBox) {
         latestValidFrameRef.current = {
           cropBox: message.result.cropBox,
@@ -178,6 +193,7 @@ export function useOutfitDetection(
       worker.terminate();
       candidates.clear();
       latestValidFrameRef.current = null;
+      latestAnyFrameRef.current = null;
     };
   }, [enabled, videoRef]);
 
@@ -200,10 +216,34 @@ export function useOutfitDetection(
     [],
   );
 
+  /**
+   * Crops whatever is on camera now, ignoring frame-quality gating.
+   *
+   * Used only when finalisation would otherwise submit nothing. The scoring
+   * provider reports frame quality itself and returns null scores for an
+   * unusable player, so a poorly framed shot still yields a judged result
+   * instead of a dead battle.
+   */
+  const captureFallbackCandidate = useCallback(async (): Promise<CandidateFrame | null> => {
+    const video = videoRef.current;
+    if (!video) return null;
+    const latest = latestAnyFrameRef.current ?? latestValidFrameRef.current;
+    if (!latest) return null;
+    const crop = await captureCurrentVideoCrop(video, latest.cropBox);
+    if (!crop) return null;
+    return {
+      capturedAt: performance.now(),
+      crop,
+      quality: latest.quality,
+      visibleRegions: latest.visibleRegions,
+    };
+  }, [videoRef]);
+
   return {
     result,
     detectorState,
     captureCurrentCandidate,
     consumeBestCandidate,
+    captureFallbackCandidate,
   };
 }

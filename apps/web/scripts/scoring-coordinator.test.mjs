@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ScoringCoordinator } from "../lib/scoring-coordinator.mjs";
+import { ScoringCoordinator, describeMissingFrames } from "../lib/scoring-coordinator.mjs";
 
 class FakeIo {
   events = [];
@@ -547,4 +547,44 @@ test("a leaderboard failure does not surface to the battle", async () => {
     }),
   );
   await new Promise((resolve) => setImmediate(resolve));
+});
+
+const slotsWith = (reasons, supplied = {}) => [0, 1, 2].map(() => ({
+  reasons: { player_a: null, player_b: null, ...reasons },
+  frames: { player_a: null, player_b: null, ...supplied },
+}));
+
+test("names the player whose framing failed instead of blaming cameras", () => {
+  const message = describeMissingFrames(
+    slotsWith({ player_a: "partial_outfit" }, { player_b: { image: Buffer.from([1]) } }),
+  );
+
+  assert.match(message, /Player 1/);
+  assert.match(message, /not enough of the outfit was in frame/);
+  assert.doesNotMatch(message, /Player 2/);
+});
+
+test("reports both players when neither supplied a frame", () => {
+  const message = describeMissingFrames(
+    slotsWith({ player_a: "no_person", player_b: "low_light" }),
+  );
+
+  assert.match(message, /Player 1: nobody was detected in frame/);
+  assert.match(message, /Player 2: the light was too low/);
+});
+
+test("falls back to a plain statement when the client gave no reason", () => {
+  const message = describeMissingFrames(
+    slotsWith({}, { player_a: { image: Buffer.from([1]) } }),
+  );
+
+  assert.match(message, /Player 2 sent no usable frame/);
+});
+
+test("does not accuse anyone when both sides did supply frames", () => {
+  const message = describeMissingFrames(
+    slotsWith({}, { player_a: { image: Buffer.from([1]) }, player_b: { image: Buffer.from([2]) } }),
+  );
+
+  assert.match(message, /could not be paired in time/);
 });
