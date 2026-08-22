@@ -17,7 +17,7 @@ __pycache__/
 dist/
 
 # ML data and generated model artifacts
-data/
+data/*
 models/
 artifacts/
 checkpoints/
@@ -30,6 +30,12 @@ wandb/
 
 # Leaderboard store (per-machine game records)
 .data/
-# Labelling station: image pool and collected decisions are local data
+# Labelling station. The photo pool is bulk local data; the collected
+# decisions are the dataset itself — hours of irreplaceable human judgement
+# and what the scoring model trains on — so they are tracked.
+# `data/*` above excludes the tree's contents while leaving the directory
+# traversable, so these negations can match.
 apps/web/public/label-pool/
-data/labelling/
+!data/labelling/
+data/labelling/*
+!data/labelling/*.jsonl
