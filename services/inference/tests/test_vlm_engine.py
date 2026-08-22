@@ -21,6 +21,7 @@ from fitted_inference.vlm import (
     VlmPairAssessment,
     VlmPlayerAssessment,
     VlmProviderInvalidResponseError,
+    VlmProviderQuotaError,
     VlmProviderRefusalError,
     VlmProviderRetryableError,
     VlmProviderTimeoutError,
@@ -405,3 +406,28 @@ def test_provider_schema_still_permits_null_scores_for_unusable_imagery() -> Non
     # Required means "must be present", not "must be a number": an unusable
     # player still has to be able to report nulls.
     assert {"type": "null"} in body_fit["anyOf"]
+
+
+@pytest.mark.anyio
+async def test_quota_exhaustion_surfaces_at_once_without_a_second_attempt() -> None:
+    """
+    A 429 means the allowance is gone; retrying burns another request and fails
+    the same way. It must surface immediately, and say quota rather than reading
+    as a transient outage.
+    """
+
+    class QuotaProvider:
+        model_version = "fake-vlm"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def assess(self, **_kwargs) -> VlmAssessment:
+            self.calls += 1
+            raise VlmProviderQuotaError("The scoring quota is exhausted.")
+
+    provider = QuotaProvider()
+    engine = InferenceEngine(provider=provider)
+    with pytest.raises(InferenceUnavailableError, match="quota is exhausted"):
+        await engine._assess_with_retry([], [])
+    assert provider.calls == 1

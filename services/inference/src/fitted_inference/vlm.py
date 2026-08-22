@@ -121,6 +121,14 @@ class VlmProviderTimeoutError(VlmProviderError):
     """The provider did not complete within the configured deadline."""
 
 
+class VlmProviderQuotaError(VlmProviderError):
+    """The provider rejected the request because the quota is exhausted.
+
+    Distinct from a retryable outage: an immediate retry is guaranteed to fail
+    too, and the operator has to wait for a reset or raise their limit.
+    """
+
+
 class VlmProviderRefusalError(VlmProviderError):
     """The provider refused or returned no assessable output."""
 
@@ -230,6 +238,15 @@ class GeminiVlmProvider:
         except Exception as error:
             status_code = getattr(error, "status_code", None) or getattr(error, "code", None)
             if status_code in {429, 500, 502, 503, 504}:
+                # Log the provider's own words: rate limiting, quota exhaustion
+                # and a genuine outage all arrive here and need very different
+                # responses from whoever is running the demo.
+                logger.warning("Gemini reported %s: %s", status_code, str(error)[:500])
+                if status_code == 429:
+                    raise VlmProviderQuotaError(
+                        "The scoring quota is exhausted. Retrying will not help until "
+                        "it resets or billing is raised."
+                    ) from error
                 raise VlmProviderRetryableError("Gemini is temporarily unavailable.") from error
             if status_code == 408 or "timeout" in type(error).__name__.lower():
                 raise VlmProviderTimeoutError("Gemini request timed out.") from error
