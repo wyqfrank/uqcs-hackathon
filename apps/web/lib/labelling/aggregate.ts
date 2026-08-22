@@ -108,3 +108,81 @@ export function summarise(decisions: readonly Decision[], consensus: readonly Pa
     perRater,
   };
 }
+
+/**
+ * Health check for a merge of independently collected rater files.
+ *
+ * Raters only produce comparable data if they saw the *same pairs*. Pair ids
+ * are derived from image filenames, so a rater who ingested a different photo
+ * set silently produces ids nobody else has — and the merge looks fine while
+ * containing nothing to compare. This surfaces that.
+ */
+export type MergeReport = {
+  raters: string[];
+  /** Pair ids seen by every rater. Only these can be compared. */
+  sharedPairs: number;
+  /** Pair ids seen by at least one rater but not all. */
+  partialPairs: number;
+  /** Ids unique to a single rater, keyed by rater. A large count means pool divergence. */
+  exclusiveByRater: Record<string, number>;
+  /** Share of one rater's pairs that any other rater also labelled. */
+  overlapByRater: Record<string, number>;
+  /** True when at least one rater shares almost nothing with the others. */
+  poolMismatchSuspected: boolean;
+  warnings: string[];
+};
+
+export function reportMerge(decisions: readonly Decision[]): MergeReport {
+  const byRater = new Map<string, Set<string>>();
+  for (const decision of decisions) {
+    const set = byRater.get(decision.raterId) ?? new Set<string>();
+    set.add(decision.pairId);
+    byRater.set(decision.raterId, set);
+  }
+
+  const raters = [...byRater.keys()].sort();
+  const allPairs = new Set(decisions.map((d) => d.pairId));
+  const countFor = (pairId: string) => raters.filter((r) => byRater.get(r)!.has(pairId)).length;
+
+  let shared = 0;
+  let partial = 0;
+  for (const pairId of allPairs) {
+    if (countFor(pairId) === raters.length && raters.length > 1) shared += 1;
+    else if (raters.length > 1) partial += 1;
+  }
+
+  const exclusiveByRater: Record<string, number> = {};
+  const overlapByRater: Record<string, number> = {};
+  for (const rater of raters) {
+    const own = byRater.get(rater)!;
+    let exclusive = 0;
+    for (const pairId of own) if (countFor(pairId) === 1) exclusive += 1;
+    exclusiveByRater[rater] = exclusive;
+    overlapByRater[rater] = own.size ? (own.size - exclusive) / own.size : 0;
+  }
+
+  const warnings: string[] = [];
+  let mismatch = false;
+  if (raters.length > 1) {
+    for (const rater of raters) {
+      if (overlapByRater[rater] < 0.2) {
+        mismatch = true;
+        warnings.push(
+          `${rater} shares only ${(overlapByRater[rater] * 100).toFixed(0)}% of their pairs with other raters — ` +
+          "likely a different image pool or seed, so their labels cannot be aggregated.",
+        );
+      }
+    }
+    if (shared === 0) warnings.push("No pair was labelled by every rater; agreement cannot be measured.");
+  }
+
+  return {
+    raters,
+    sharedPairs: shared,
+    partialPairs: partial,
+    exclusiveByRater,
+    overlapByRater,
+    poolMismatchSuspected: mismatch,
+    warnings,
+  };
+}

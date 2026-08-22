@@ -150,6 +150,40 @@ Export:
 - `GET /api/label/export?format=consensus` — **one row per pair**: the aggregated
   soft label to train against
 
+### Merging files from separate machines
+
+If each rater ran the app on their own laptop, collect their
+`data/labelling/decisions.<rater>.jsonl` files and merge them:
+
+```bash
+node scripts/merge-labels.mjs ~/Downloads/decisions.angus.jsonl ~/Downloads/decisions.frank.jsonl
+node scripts/merge-labels.mjs ~/Downloads/labels/        # or a whole folder
+node scripts/merge-labels.mjs ... --dry-run              # preview
+```
+
+Rows are grouped by the rater id **recorded inside them**, not by filename, and
+a rater labelling the same pair twice keeps their latest answer. Existing files
+in `data/labelling/` are folded in, so re-running is safe.
+
+The script then checks whether the merge is actually comparable:
+
+```
+raters: 3   distinct pairs: 137   labelled by all: 0
+  angus             60 pairs   100% shared
+  dp                97 pairs    62% shared
+  frank             40 pairs     0% shared   <-- POOL MISMATCH
+```
+
+**This is the failure worth guarding against.** Pair ids are derived from image
+filenames, so a rater who ingested a different photo set produces ids nobody
+else has. The merge succeeds, the totals look healthy, and there is nothing to
+compare — silently. The same report is available from
+`GET /api/label/export` under `merge`.
+
+Not every pair needs every rater. Partial overlap is fine and normal: only the
+shared pairs contribute to agreement, while the rest still carry single-rater
+targets.
+
 ### Aggregation
 
 `lib/labelling/aggregate.ts` combines the independent passes:

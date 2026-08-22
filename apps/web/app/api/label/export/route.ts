@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { aggregateByPair, summarise } from "@/lib/labelling/aggregate";
+import { aggregateByPair, reportMerge, summarise } from "@/lib/labelling/aggregate";
 import { readAllDecisions } from "@/lib/labelling/store";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,7 @@ export async function GET(request: Request) {
   const decisions = await readAllDecisions();
   const consensus = aggregateByPair(decisions);
   const summary = summarise(decisions, consensus);
+  const merge = reportMerge(decisions);
   const preference = decisions.filter((d) => d.target !== null);
   const frameQuality = decisions.filter((d) => d.target === null);
 
@@ -42,5 +43,5 @@ export async function GET(request: Request) {
     });
   }
 
-  return NextResponse.json({ summary, consensus, preference, frameQuality });
+  return NextResponse.json({ summary, merge, consensus, preference, frameQuality });
 }

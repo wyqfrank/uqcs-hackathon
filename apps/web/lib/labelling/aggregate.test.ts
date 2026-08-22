@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateByPair, summarise } from "./aggregate";
+import { aggregateByPair, reportMerge, summarise } from "./aggregate";
 import type { Decision, Verdict } from "./types";
 
 function decision(pairId: string, raterId: string, verdict: Verdict, extra: Partial<Decision> = {}): Decision {
@@ -95,5 +95,50 @@ describe("summarise", () => {
     // p1: 2/3 agree, p2: unanimous. p3 has one rater and is excluded.
     expect(s.meanAgreement).toBeCloseTo((2 / 3 + 1) / 2);
     expect(s.contestedPairs).toBe(1);
+  });
+});
+
+describe("reportMerge", () => {
+  it("reports full overlap when raters saw the same pairs", () => {
+    const r = reportMerge([
+      decision("p1", "dp", "a"), decision("p2", "dp", "b"),
+      decision("p1", "angus", "a"), decision("p2", "angus", "a"),
+      decision("p1", "frank", "b"), decision("p2", "frank", "b"),
+    ]);
+    expect(r.raters).toEqual(["angus", "dp", "frank"]);
+    expect(r.sharedPairs).toBe(2);
+    expect(r.partialPairs).toBe(0);
+    expect(r.poolMismatchSuspected).toBe(false);
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("flags a rater whose pool diverged", () => {
+    // `rogue` ingested different photos, so none of their pair ids match.
+    const shared = ["p1", "p2", "p3", "p4", "p5"].flatMap((p) => [
+      decision(p, "dp", "a"), decision(p, "angus", "b"),
+    ]);
+    const rogue = ["x1", "x2", "x3", "x4", "x5"].map((p) => decision(p, "rogue", "a"));
+    const r = reportMerge([...shared, ...rogue]);
+    expect(r.poolMismatchSuspected).toBe(true);
+    expect(r.overlapByRater.rogue).toBe(0);
+    expect(r.exclusiveByRater.rogue).toBe(5);
+    expect(r.overlapByRater.dp).toBe(1);
+    expect(r.warnings.some((w) => w.includes("rogue"))).toBe(true);
+  });
+
+  it("warns when no pair was labelled by everyone", () => {
+    const r = reportMerge([
+      decision("p1", "dp", "a"), decision("p1", "angus", "b"),
+      decision("p2", "frank", "a"),
+    ]);
+    expect(r.sharedPairs).toBe(0);
+    expect(r.warnings.some((w) => w.includes("agreement cannot be measured"))).toBe(true);
+  });
+
+  it("stays quiet for a single rater", () => {
+    const r = reportMerge([decision("p1", "dp", "a"), decision("p2", "dp", "b")]);
+    expect(r.raters).toEqual(["dp"]);
+    expect(r.warnings).toEqual([]);
+    expect(r.poolMismatchSuspected).toBe(false);
   });
 });
