@@ -22,3 +22,8 @@ models/
 artifacts/
 checkpoints/
 wandb/
+
+# The browser detector's model is a pinned, vendored dependency rather than a
+# training artifact, and the WASM runtime beside it is useless without it.
+!apps/web/public/mediapipe/models/
+!apps/web/public/mediapipe/models/**
