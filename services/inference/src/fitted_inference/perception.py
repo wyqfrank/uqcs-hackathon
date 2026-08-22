@@ -420,8 +420,16 @@ class RFDetrGarmentDetector:
     ) -> None:
         if not 0 <= threshold <= 1:
             raise ValueError("RF-DETR threshold must be between 0 and 1.")
-        if not device.startswith("cuda"):
-            raise GarmentModelNotReadyError("RF-DETR hackathon runtime requires CUDA.")
+        # Apple silicon has no CUDA, so a CUDA-only runtime cannot be measured
+        # against the latency gate on that hardware at all. MPS is accepted so
+        # the gate can be run there; whether it is fast enough is what the gate
+        # decides. CPU stays excluded — Grounding DINO already showed CPU
+        # garment detection is far too slow to be live.
+        if not (device.startswith("cuda") or device == "mps"):
+            raise GarmentModelNotReadyError(
+                "RF-DETR hackathon runtime requires CUDA or MPS; "
+                f"got {device!r}."
+            )
 
         checkpoint = Path(checkpoint_path).resolve()
         _verify_checkpoint(checkpoint, expected_sha256)
@@ -431,9 +439,15 @@ class RFDetrGarmentDetector:
                 torch_module = import_module("torch")
             except ImportError as error:
                 raise GarmentModelNotReadyError("RF-DETR requires PyTorch.") from error
-        cuda = getattr(torch_module, "cuda", None)
-        if cuda is None or not cuda.is_available():
-            raise GarmentModelNotReadyError("RF-DETR requires CUDA-enabled PyTorch.")
+        if device == "mps":
+            backends = getattr(torch_module, "backends", None)
+            mps = getattr(backends, "mps", None) if backends else None
+            if mps is None or not mps.is_available():
+                raise GarmentModelNotReadyError("RF-DETR requires MPS-enabled PyTorch.")
+        else:
+            cuda = getattr(torch_module, "cuda", None)
+            if cuda is None or not cuda.is_available():
+                raise GarmentModelNotReadyError("RF-DETR requires CUDA-enabled PyTorch.")
 
         if model_factory is None:
             try:
@@ -558,6 +572,28 @@ class RFDetrGarmentDetector:
         return raw
 
 
+def default_accelerator() -> str:
+    """
+    Picks the accelerator to use when FITTED_GARMENT_DEVICE is unset.
+
+    CUDA first so existing machines are unaffected, then Apple's MPS so the
+    latency gate can be measured on a MacBook rather than refusing to start.
+    Falls back to "cuda" so the failure message names the missing runtime
+    rather than an unrelated device.
+    """
+    try:
+        torch_module = import_module("torch")
+    except ImportError:
+        return "cuda"
+    cuda = getattr(torch_module, "cuda", None)
+    if cuda is not None and cuda.is_available():
+        return "cuda"
+    mps = getattr(getattr(torch_module, "backends", None), "mps", None)
+    if mps is not None and mps.is_available():
+        return "mps"
+    return "cuda"
+
+
 def create_garment_detector(settings: Settings) -> GarmentDetector:
     if settings.garment_backend == "rfdetr":
         if not settings.garment_checkpoint_path:
@@ -567,7 +603,7 @@ def create_garment_detector(settings: Settings) -> GarmentDetector:
         return RFDetrGarmentDetector(
             checkpoint_path=settings.garment_checkpoint_path,
             threshold=settings.garment_box_threshold,
-            device=settings.garment_device or "cuda",
+            device=settings.garment_device or default_accelerator(),
         )
     if settings.garment_backend == "grounding_dino":
         if not settings.garment_model_id:
