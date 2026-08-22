@@ -60,7 +60,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
 
         <div className="players">
           <PlayerCard
-            label="YOU" number={role === "host" ? "01" : "02"}
+            label="YOU" number={role === "host" ? "01" : "02"} side="p1"
             stream={camera.stream} videoRef={localVideoRef} muted
             score={localInference.score} analysing={localInference.isAnalysing}
             waitingText={camera.status === "requesting" ? "OPENING CAMERA" : "CAMERA OFF"}
@@ -68,7 +68,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
           />
           <div className="versus-mark"><span>V</span><span>S</span></div>
           <PlayerCard
-            label="THEM" number={role === "host" ? "02" : "01"}
+            label="THEM" number={role === "host" ? "02" : "01"} side="p2"
             stream={rtc.remoteStream} videoRef={remoteVideoRef} muted={false}
             score={remoteInference.score} analysing={remoteInference.isAnalysing}
             waitingText={rtc.connectionState === "connecting" ? "CONNECTING" : "WAITING FOR OPPONENT"}
@@ -79,7 +79,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
       </section>
 
       <div className="control-dock">
-        <Button variant="bare" size="bare" aria-label={camera.stream ? "Stop camera" : "Start camera"} onClick={camera.stream ? camera.stopCamera : () => void camera.startCamera()}>
+        <Button variant="bare" size="bare" aria-label={camera.stream ? "Stop camera" : "Start camera"} className="primary-control" onClick={camera.stream ? camera.stopCamera : () => void camera.startCamera()}>
           {camera.stream ? <CameraOff aria-hidden="true" /> : <Camera aria-hidden="true" />}<span>{camera.stream ? "STOP CAMERA" : "START CAMERA"}</span>
         </Button>
         <Button variant="bare" size="bare" aria-label={frozen ? "Resume score" : "Freeze score"} className={frozen ? "is-active" : ""} onClick={() => setFrozen((value) => !value)}>
