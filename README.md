@@ -45,8 +45,10 @@ npm run setup:model
 Copy-Item services/inference/.env.example .env
 ```
 
-`setup:model` downloads the pinned Fashionpedia RF-DETR-Seg checkpoint from the
-project's GitHub Release into the ignored `models/rfdetr-fashionpedia/` directory.
+`setup:model` downloads the pinned Fashionpedia RF-DETR-Seg checkpoint into the
+ignored `models/rfdetr-fashionpedia/` directory. It prefers the project's GitHub
+Release when `GITHUB_TOKEN` or `GH_TOKEN` can access the private repository and
+otherwise uses the same pinned public Hugging Face revision.
 It accepts the artifact only when both its 134,442,577-byte size and SHA-256
 `aafefc440ea8f3f388e894a898e4270a2eeb6e38a3c3ffd3751d07d0f30b26bb`
 match. Re-running the command is safe and skips an already verified checkpoint.

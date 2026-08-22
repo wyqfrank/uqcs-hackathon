@@ -568,6 +568,8 @@ Keep pure crop, quality, motion, candidate-selection, and state-transition logic
 - [x] Decide that frozen-only garment perception does not satisfy the live product.
 - [x] Select RF-DETR-Seg Small as the only time-boxed live replacement candidate.
 - [x] Implement and unit-test the RF-DETR-Seg adapter and paired inference boundary.
+- [x] Add an idempotent checkpoint bootstrap that verifies the pinned byte size and
+  SHA-256 before enabling the local RF-DETR runtime.
 - [ ] Run the representative-crop portion of the 90-minute acceptance gate.
 - [ ] Integrate garment perception at approximately 1 FPS only if the acceptance gate passes.
 - [ ] Post-hackathon: evaluate garment perception on mapped DeepFashion2, Fashionpedia, and larger webcam fixtures.

@@ -7,8 +7,11 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
-const checkpointUrl = process.env.FITTED_GARMENT_CHECKPOINT_URL
-  || "https://github.com/wyqfrank/uqcs-hackathon/releases/download/fashionpedia-rfdetr-f1b64c11/checkpoint_best_ema.pth";
+const releaseUrl = "https://github.com/wyqfrank/uqcs-hackathon/releases/download/fashionpedia-rfdetr-f1b64c11/checkpoint_best_ema.pth";
+const upstreamUrl = "https://huggingface.co/resoa/garment-detector-seg/resolve/f1b64c11fa42d2f7455708b7a05f81c015461427/checkpoint_best_ema.pth?download=true";
+const checkpointUrls = process.env.FITTED_GARMENT_CHECKPOINT_URL
+  ? [process.env.FITTED_GARMENT_CHECKPOINT_URL]
+  : [releaseUrl, upstreamUrl];
 const configuredPath = process.env.FITTED_GARMENT_CHECKPOINT_PATH
   || "models/rfdetr-fashionpedia/checkpoint_best_ema.pth";
 const checkpointPath = isAbsolute(configuredPath)
@@ -43,6 +46,21 @@ async function verify(path) {
   };
 }
 
+async function download(url, destination) {
+  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const headers = githubToken && url.startsWith("https://github.com/")
+    ? { Authorization: `Bearer ${githubToken}` }
+    : undefined;
+  const response = await fetch(url, { redirect: "follow", headers });
+  if (!response.ok || !response.body) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  await pipeline(
+    Readable.fromWeb(response.body),
+    createWriteStream(destination, { flags: "wx" }),
+  );
+}
+
 async function main() {
   if (await exists(checkpointPath)) {
     const current = await verify(checkpointPath);
@@ -62,15 +80,20 @@ async function main() {
   await mkdir(dirname(checkpointPath), { recursive: true });
   const temporaryPath = `${checkpointPath}.${randomUUID()}.download`;
   try {
-    console.log(`Downloading pinned RF-DETR checkpoint from ${checkpointUrl}`);
-    const response = await fetch(checkpointUrl, { redirect: "follow" });
-    if (!response.ok || !response.body) {
-      throw new Error(`Checkpoint download failed with HTTP ${response.status}.`);
+    let downloadedFrom = null;
+    for (const [index, url] of checkpointUrls.entries()) {
+      try {
+        console.log(`Downloading pinned RF-DETR checkpoint from ${url}`);
+        await download(url, temporaryPath);
+        downloadedFrom = url;
+        break;
+      } catch (error) {
+        await rm(temporaryPath, { force: true });
+        if (index === checkpointUrls.length - 1) throw error;
+        console.warn("Project Release download was unavailable; trying the pinned upstream artifact.");
+      }
     }
-    await pipeline(
-      Readable.fromWeb(response.body),
-      createWriteStream(temporaryPath, { flags: "wx" }),
-    );
+    if (!downloadedFrom) throw new Error("No checkpoint download source succeeded.");
 
     const downloaded = await verify(temporaryPath);
     if (!downloaded.valid) {
@@ -81,7 +104,8 @@ async function main() {
     }
     if (force) await rm(checkpointPath, { force: true });
     await rename(temporaryPath, checkpointPath);
-    console.log(`RF-DETR checkpoint downloaded and verified: ${checkpointPath}`);
+    console.log(`RF-DETR checkpoint downloaded and verified from ${downloadedFrom}`);
+    console.log(checkpointPath);
   } finally {
     await rm(temporaryPath, { force: true });
   }
