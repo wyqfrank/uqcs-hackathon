@@ -196,6 +196,102 @@ def test_compare_returns_typed_final_result_with_identity(monkeypatch) -> None:
     assert payload["winProbability"] is None
 
 
+def test_compare_accepts_three_chronological_pairs_in_one_request(monkeypatch) -> None:
+    calls = []
+
+    class FakeProvider:
+        model_version = "fake-vlm"
+
+        async def assess(self, **kwargs) -> VlmAssessment:
+            calls.append(kwargs)
+            return VlmAssessment(
+                player_a=VlmPlayerAssessment(
+                    frame_quality="ok",
+                    component_quality=80,
+                    outfit_coordination=70,
+                    body_fit=60,
+                    vlm_holistic=75,
+                ),
+                player_b=VlmPlayerAssessment(
+                    frame_quality="ok",
+                    component_quality=60,
+                    outfit_coordination=60,
+                    body_fit=60,
+                    vlm_holistic=60,
+                ),
+                pair=VlmPairAssessment(
+                    preference="player_a",
+                    explanation="Player A is more coordinated across the sequence.",
+                ),
+            )
+
+    monkeypatch.setattr(
+        main_module,
+        "create_engine",
+        lambda _settings: InferenceEngine(provider=FakeProvider(), prompt_version="prompt-v2"),
+    )
+    image = valid_image_bytes()
+    data = {
+        "battle_id": "FIT-1234",
+        "finalisation_id": "final-1",
+        "pair_id": "burst-1",
+        "player_a_sample_id": ["a-0", "a-1", "a-2"],
+        "player_b_sample_id": ["b-0", "b-1", "b-2"],
+        "player_a_captured_at_ms": ["1000", "1750", "2500"],
+        "player_b_captured_at_ms": ["1005", "1755", "2505"],
+    }
+    files = [
+        *(('player_a', (f"a-{index}.webp", image, "image/webp")) for index in range(3)),
+        *(('player_b', (f"b-{index}.webp", image, "image/webp")) for index in range(3)),
+    ]
+
+    with TestClient(app) as client:
+        response = client.post("/v1/compare", data=data, files=files)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(calls) == 1
+    assert len(calls[0]["player_a_images"]) == 3
+    assert payload["playerASampleId"] == "a-2"
+    assert payload["playerBSampleId"] == "b-2"
+    assert [pair["burstIndex"] for pair in payload["samplePairs"]] == [0, 1, 2]
+
+
+def test_compare_rejects_mismatched_or_non_chronological_burst() -> None:
+    image = valid_image_bytes()
+    mismatched = {
+        **COMPARISON_FORM,
+        "player_a_sample_id": ["a-0", "a-1"],
+    }
+    files = {
+        "player_a": ("player-a.webp", image, "image/webp"),
+        "player_b": ("player-b.webp", image, "image/webp"),
+    }
+    with TestClient(app) as client:
+        mismatch_response = client.post("/v1/compare", data=mismatched, files=files)
+        chronological_response = client.post(
+            "/v1/compare",
+            data={
+                **COMPARISON_FORM,
+                "player_a_sample_id": ["a-0", "a-1"],
+                "player_b_sample_id": ["b-0", "b-1"],
+                "player_a_captured_at_ms": ["2000", "1000"],
+                "player_b_captured_at_ms": ["1000", "2000"],
+            },
+            files=[
+                ("player_a", ("a-0.webp", image, "image/webp")),
+                ("player_a", ("a-1.webp", image, "image/webp")),
+                ("player_b", ("b-0.webp", image, "image/webp")),
+                ("player_b", ("b-1.webp", image, "image/webp")),
+            ],
+        )
+
+    assert mismatch_response.status_code == 422
+    assert "equal lengths" in mismatch_response.json()["detail"]
+    assert chronological_response.status_code == 422
+    assert "chronological" in chronological_response.json()["detail"]
+
+
 def test_compare_rejects_undecodable_supported_media(monkeypatch) -> None:
     class FakeProvider:
         model_version = "fake-vlm"

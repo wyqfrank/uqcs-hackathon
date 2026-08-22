@@ -18,9 +18,10 @@ The API runs at `http://localhost:8000`; its OpenAPI UI is available at
 ## Endpoints
 
 - `GET /health` reports process health and whether a model is ready.
-- `POST /v1/compare` accepts paired image fields plus battle, finalisation, pair,
-  sample, and capture-time identity as multipart fields. It returns a typed final
-  or not-scoreable result.
+- `POST /v1/compare` accepts one to three chronological Player A/B image pairs
+  plus battle, finalisation, pair, sample, and capture-time identity as repeated
+  multipart fields. It evaluates the burst in one provider request and returns a
+  typed final or not-scoreable result.
 - `GET /v1/garments/health` reports whether garment perception is configured.
 - `POST /v1/garments` accepts one canonical outfit crop in the `image` multipart
   field and returns canonical garment categories, normalised boxes, confidence,

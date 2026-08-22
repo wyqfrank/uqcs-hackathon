@@ -91,6 +91,14 @@ class FrameQuality(ApiModel):
     player_b: Literal["ok", "poor", "unusable"]
 
 
+class SamplePairIdentity(ApiModel):
+    burst_index: int = Field(ge=0, le=2)
+    player_a_sample_id: str
+    player_b_sample_id: str
+    player_a_captured_at_ms: float = Field(ge=0)
+    player_b_captured_at_ms: float = Field(ge=0)
+
+
 class ComparisonIdentity(ApiModel):
     battle_id: str
     finalisation_id: str
@@ -99,6 +107,7 @@ class ComparisonIdentity(ApiModel):
     player_b_sample_id: str
     player_a_captured_at_ms: float
     player_b_captured_at_ms: float
+    sample_pairs: list[SamplePairIdentity] = Field(min_length=1, max_length=3)
 
 
 class FinalComparisonResponse(ComparisonIdentity):
