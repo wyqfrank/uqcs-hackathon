@@ -80,7 +80,20 @@ export async function encodeImageBitmap(
   const context = canvas.getContext("2d", { alpha: false });
   if (!context) return null;
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve) => canvas.toBlob(resolve, format, quality));
+
+  const encode = (type: string) =>
+    new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
+
+  const blob = await encode(format);
+  if (blob && blob.type === format) return blob;
+
+  // A browser that cannot encode the requested format silently produces PNG
+  // instead — Safari does this for WebP. PNG is many times larger and the
+  // upload boundary rejects it, so fall back to JPEG, which every browser can
+  // encode and every consumer here accepts.
+  const fallback = await encode("image/jpeg");
+  if (fallback && fallback.type === "image/jpeg") return fallback;
+  return fallback ?? blob;
 }
 
 export async function encodeAndCloseImageBitmap(
