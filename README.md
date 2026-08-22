@@ -95,11 +95,46 @@ npm run dev:web
 Both devices must trust the certificate authority. Allow inbound TCP port 3000 in
 Laptop A's firewall if prompted.
 
+## Network preflight and TURN
+
+Guest and campus Wi-Fi can block peer-to-peer traffic through client isolation,
+symmetric NAT, or an outright UDP block. Run the command-line preflight on the
+network before relying on it:
+
+```powershell
+npm run test:turn
+```
+
+Then open `/diagnostics` in the browser. It gathers ICE candidates without a
+second laptop:
+
+- `host` only means both laptops need a shared subnet and client isolation can
+  still block them;
+- `srflx` means STUN traversal works through an ordinary NAT;
+- `relay` means TURN is reachable and provides the safest demo route.
+
+The battle status strip reports the negotiated route as `DIRECT`, `P2P VIA NAT`,
+or `TURN RELAY`.
+
+For Cloudflare Realtime TURN, copy `apps/web/.env.example` to
+`apps/web/.env.local` and set `CLOUDFLARE_TURN_KEY_ID` and
+`CLOUDFLARE_TURN_API_TOKEN`. The server exchanges these secrets for short-lived
+credentials; the API token never reaches the browser. A self-hosted relay can
+instead use the documented `NEXT_PUBLIC_TURN_*` values, but those static
+credentials are visible in the browser bundle.
+
+TURN is a fallback, not the preferred route, so a healthy direct connection does
+not consume relay bandwidth. If no relay is available, putting both laptops on
+one phone hotspot is the most reliable fallback.
+
 ## Architecture notes
 
 - `apps/web/server.mjs` hosts Next.js and the Socket.IO signalling server together.
 - `apps/web/hooks/useCamera.ts` owns local camera lifecycle.
-- `apps/web/hooks/useWebRTC.ts` owns the peer connection and remote stream.
+- `apps/web/hooks/useWebRTC.ts` owns signalling, the peer connection, camera-track
+  replacement, and the remote stream.
+- `apps/web/lib/iceStats.ts` reports gathered candidates and the active WebRTC route.
+- `apps/web/lib/rtcConfig.ts` resolves STUN and TURN configuration.
 - `apps/web/lib/scoring.ts` defines the authoritative final-result client contract.
 - `apps/web/server.mjs` pairs one local crop from each player and invokes inference
   once per finalisation.
