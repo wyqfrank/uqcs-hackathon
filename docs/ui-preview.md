@@ -74,10 +74,33 @@ otherwise healthy connected battle: `connectionState`, `connectionError`,
 `cameraStatus`, `cameraError`, `hasLocalStream`, `hasRemoteStream`, `scores`,
 `provisional`.
 
+## Playing a whole round
+
+**▶ PLAY ROUND** (right-hand end of the switcher) walks the real sequence on
+real timers, using the server's default durations:
+
+```
+0.0s  framing            one player ready, then both
+1.4s  lead-in            overlay counts 3 -> 2 -> 1        (FITTED_ROUND_LEAD_IN_MS)
+4.4s  scoring            no overlay; live estimates drift  (FITTED_ROUND_DURATION_MS)
+9.4s  capturing fits
+10.3s analysing
+12.1s result             overlay with the verdict
+```
+
+The static scenarios show what each phase *looks* like; this shows how the
+round *feels*. Whether three seconds is long enough to settle into frame, and
+whether the cut from scoring to analysing lands or jars, are questions a still
+frame cannot answer.
+
+Durations live in `useSimulatedRound.ts` as `LEAD_IN_MS` and `ROUND_MS`. Change
+them there to try a different pacing before changing the server.
+
 ## Limits
 
 - Controls are inert. The dock buttons render in the right state but do
   nothing — this previews appearance, not behaviour.
-- No real inference. Scores and explanations are fixed strings.
-- Timing is not simulated. The countdown shows a static number rather than
-  ticking, so it will not tell you whether three seconds *feels* right.
+- No real inference. Scores and explanations are fixed strings, and the live
+  estimates during a simulated round are a random walk, not a model.
+- No second player, so nothing exercises the signalling or the peer
+  connection.

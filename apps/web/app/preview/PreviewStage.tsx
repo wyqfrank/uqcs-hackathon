@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BattleStage } from "@/components/BattleStage";
 import { SCENARIOS } from "./scenarios";
+import { useSimulatedRound } from "./useSimulatedRound";
 
 /**
  * Renders the real BattleStage from mock state. Nothing here touches a camera,
@@ -56,13 +57,17 @@ export function PreviewStage() {
   const localStream = usePlaceholderStream("YOU", 300);
   const remoteStream = usePlaceholderStream("THEM", 90);
 
+  const sim = useSimulatedRound();
   const scenario = SCENARIOS[index];
+  // While a round is playing it drives the screen; otherwise the picked
+  // scenario does. One switch keeps the two from fighting over the state.
+  const live = sim.running || sim.state.phase === "final";
   // A new scenario should always show its overlay, even after dismissing one.
   useEffect(() => setDismissed(null), [index]);
 
-  const [localScore, remoteScore] = useMemo(
-    () => scenario.scores ?? [null, null],
-    [scenario],
+  const [localScore, remoteScore] = useMemo<[number | null, number | null]>(
+    () => (live ? (sim.scores ?? [null, null]) : (scenario.scores ?? [null, null])),
+    [live, sim.scores, scenario],
   );
 
   return (
@@ -70,10 +75,13 @@ export function PreviewStage() {
       <nav className="preview-bar">
         <b>PREVIEW</b>
         {SCENARIOS.map((s, i) => (
-          <button key={s.id} className={i === index ? "is-active" : ""} onClick={() => setIndex(i)}>
+          <button key={s.id} className={i === index && !live ? "is-active" : ""} onClick={() => { sim.stop(); setIndex(i); }}>
             {s.label}
           </button>
         ))}
+        <button className={`preview-play ${live ? "is-active" : ""}`} onClick={sim.running ? sim.stop : sim.start}>
+          {sim.running ? "■ STOP" : "▶ PLAY ROUND"}
+        </button>
       </nav>
 
       <BattleStage
@@ -81,19 +89,19 @@ export function PreviewStage() {
         role="host"
         copied={false}
         connection={{
-          state: scenario.connectionState ?? "connected",
+          state: live ? "connected" : (scenario.connectionState ?? "connected"),
           candidateTypes: ["host", "srflx"],
           route: null,
           error: scenario.connectionError ?? null,
         }}
         camera={{
-          status: scenario.cameraStatus ?? "ready",
-          error: scenario.cameraError ?? null,
-          hasStream: scenario.hasLocalStream !== false,
+          status: live ? "ready" : (scenario.cameraStatus ?? "ready"),
+          error: live ? null : (scenario.cameraError ?? null),
+          hasStream: live ? true : scenario.hasLocalStream !== false,
         }}
         local={{
           videoRef: localVideoRef,
-          stream: scenario.hasLocalStream === false ? null : localStream,
+          stream: !live && scenario.hasLocalStream === false ? null : localStream,
           score: localScore,
           waitingText: scenario.cameraStatus === "denied" ? "CAMERA BLOCKED" : "CAMERA OFF",
           garmentCategories: [],
@@ -102,20 +110,20 @@ export function PreviewStage() {
         remote={{
           videoRef: remoteVideoRef,
           muted: true,
-          stream: scenario.hasRemoteStream === false ? null : remoteStream,
+          stream: !live && scenario.hasRemoteStream === false ? null : remoteStream,
           score: remoteScore,
           waitingText: scenario.connectionState === "searching" ? "LOOKING FOR FIT-0000" : "WAITING FOR OPPONENT",
           garmentCategories: [],
           garmentOverlay: null,
         }}
         scoring={{
-          state: scenario.state,
-          isBusy: scenario.state.phase === "collecting" || scenario.state.phase === "analysing",
-          isLocked: scenario.state.phase === "final",
-          canRematch: scenario.state.phase === "final",
-          scoresAreProvisional: scenario.provisional ?? false,
+          state: live ? sim.state : scenario.state,
+          isBusy: ["collecting", "analysing"].includes((live ? sim.state : scenario.state).phase),
+          isLocked: (live ? sim.state : scenario.state).phase === "final",
+          canRematch: (live ? sim.state : scenario.state).phase === "final",
+          scoresAreProvisional: live ? sim.provisional : (scenario.provisional ?? false),
           error: null,
-          canFinalise: scenario.state.phase === "countdown",
+          canFinalise: (live ? sim.state : scenario.state).phase === "countdown",
         }}
         dismissedResultId={dismissed}
         onToggleCamera={() => {}}

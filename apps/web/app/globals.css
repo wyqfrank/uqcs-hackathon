@@ -1555,3 +1555,5 @@ kbd {
 .preview-bar button.is-active { background: var(--ko); color: var(--ink); }
 /* Push the battle screen clear of the fixed switcher. */
 
+.preview-bar .preview-play { margin-left: auto; background: var(--p2-dark); color: #fff; }
+.preview-bar .preview-play.is-active { background: var(--p2); color: var(--ink); }
