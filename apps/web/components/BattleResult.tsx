@@ -8,11 +8,27 @@ export function BattleResult({
   state: BattleScoringState;
   role: RoomRole;
 }) {
-  if (state.phase === "ready") {
+  if (state.phase === "waiting_ready") {
+    const localReady = role === "host" ? state.playerAReady : state.playerBReady;
+    const remoteReady = role === "host" ? state.playerBReady : state.playerAReady;
     return (
       <div className="battle-result pending">
-        <span>THE VERDICT</span>
-        <strong>READY WHEN BOTH FITS ARE FRAMED</strong>
+        <span>GET READY</span>
+        <strong>FRAME BOTH FITS TO START</strong>
+        <div className="round-readiness" aria-label="Battle readiness">
+          <span className={localReady ? "is-ready" : ""}>YOU {localReady ? "READY" : "FRAMING"}</span>
+          <span className={remoteReady ? "is-ready" : ""}>THEM {remoteReady ? "READY" : "FRAMING"}</span>
+        </div>
+      </div>
+    );
+  }
+  if (state.phase === "countdown") {
+    const seconds = String(state.secondsRemaining).padStart(2, "0");
+    return (
+      <div className="battle-result pending countdown-result" aria-live="polite">
+        <span>ROUND LIVE</span>
+        <strong className="battle-countdown">00:{seconds}</strong>
+        <p>Keep both fits framed. Final analysis begins automatically.</p>
       </div>
     );
   }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  countdownSeconds,
   isCurrentScoreResult,
   localPlayerWon,
   scoresForRole,
@@ -32,5 +33,13 @@ describe("authoritative score presentation", () => {
 
   it("accepts a locked reconnect result when no finalisation is active locally", () => {
     expect(isCurrentScoreResult(result, "FIT-1234", null)).toBe(true);
+  });
+
+  it("renders a ceiling-based countdown without crossing below zero", () => {
+    expect(countdownSeconds(30_000, 0)).toBe(30);
+    expect(countdownSeconds(30_000, 1)).toBe(30);
+    expect(countdownSeconds(30_000, 29_001)).toBe(1);
+    expect(countdownSeconds(30_000, 30_000)).toBe(0);
+    expect(countdownSeconds(30_000, 31_000)).toBe(0);
   });
 });
