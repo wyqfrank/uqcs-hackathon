@@ -30,7 +30,7 @@ This checklist is the high-level source of truth for specification and implement
 - [x] Initial CV detection specification is documented in [`docs/specs/cv-detection.md`](specs/cv-detection.md).
 - [x] Provisional live-score ranges and authoritative final-score behaviour are documented in [`docs/specs/scoring-spec.md`](specs/scoring-spec.md).
 - [ ] CV detection, frame-quality, and canonical-cropping specification is finalised and validated.
-- [ ] Instagram and Depop data-acquisition and residual-construction specification is finalised.
+- [ ] **Out of scope (hackathon):** Instagram and Depop data-acquisition and residual-construction specification is finalised.
 - [ ] Final scoring, calibration, draw, and displayed-score behaviour is decided.
 - [x] Hackathon inference ownership and frame transport are decided.
 - [ ] Deployment architecture is decided.
@@ -71,8 +71,8 @@ This checklist is the high-level source of truth for specification and implement
       apart using the latest valid crop geometry, with stable-candidate fallback,
       and submits the available one-to-five complete pairs in one VLM call.
 - [ ] Live-to-final range coverage, score error, leader reversals, and transition behaviour are verified on representative webcam battles.
-- [ ] Instagram residual labels and expert model are implemented.
-- [ ] Depop residual labels and expert model are implemented.
+- [ ] **Out of scope (hackathon):** Instagram residual labels and expert model are implemented.
+- [ ] **Out of scope (hackathon):** Depop residual labels and expert model are implemented.
 - [ ] Target-audience A/B labelling dataset is collected.
 - [x] A real inference backend is implemented: the service exposes a Gemini VLM
       scoring provider behind a typed engine boundary, gated on the package's
@@ -288,16 +288,21 @@ The model evaluates the visible outfit, not the attractiveness or value of the p
 
 Use broad social and commercial behaviour as weak supervision, then use direct A/B judgements from the target audience to calibrate the final FITTED scoring function.
 
+> **Out of scope for the hackathon.** The Instagram residual, Depop residual,
+> and visual-style-momentum source experts are descoped. The design below is
+> retained for future reference. The shipped scoring path is visual-only
+> (component quality, outfit coordination, body-aware fit) plus the VLM.
+
 ```text
-Instagram residual expert
+Instagram residual expert                       [out of scope: hackathon]
           +
-Depop residual expert
+Depop residual expert                           [out of scope: hackathon]
           +
 component, coordination and body-fit signals
           +
 VLM holistic assessment and explanation
           +
-visual style momentum (later)
+visual style momentum                           [out of scope: hackathon]
           ↓
 expert ensemble
           ↓
@@ -317,16 +322,24 @@ This is a teacher–student design:
 
 Each training image is passed through the same frozen visual encoder. Source-specific expert heads learn different signals from that shared embedding:
 
+> **Out of scope for the hackathon.** The Instagram residual, Depop residual,
+> and visual-style-momentum source experts are descoped. The design below is
+> retained for future reference. The shipped scoring path is visual-only
+> (component quality, outfit coordination, body-aware fit) plus the VLM.
+
 ```text
 outfit image
      ↓
 frozen visual encoder
      ↓
 outfit embedding
-     ├── Instagram expert → predicted relative social engagement
-     ├── Depop expert → predicted relative commercial desirability
-     └── momentum expert → predicted visual-style momentum
+     ├── Instagram expert → relative social engagement    [out of scope: hackathon]
+     ├── Depop expert → relative commercial desirability  [out of scope: hackathon]
+     └── momentum expert → visual-style momentum         [out of scope: hackathon]
 ```
+
+With all three source experts descoped, the frozen encoder currently serves the
+whole-outfit coordination signal only.
 
 The first frozen-encoder experiment should benchmark **DINOv2 Small** and **SigLIP 2 Base**. DINOv2 is attractive for a lightweight learned visual ranker; SigLIP 2 also supports a prompt-based zero-shot baseline. The hackathon must not depend on full encoder fine-tuning.
 
@@ -411,9 +424,14 @@ The whole-outfit coordination score must be learned or evaluated from the comple
 
 ### Source-signal construction
 
+> **Out of scope for the hackathon.** The Instagram residual, Depop residual,
+> and visual-style-momentum source experts are descoped. The design below is
+> retained for future reference. The shipped scoring path is visual-only
+> (component quality, outfit coordination, body-aware fit) plus the VLM.
+
 Raw popularity metrics must not be treated as taste labels. Each source first needs its own residual signal that removes as much non-outfit influence as the available data permits.
 
-#### Instagram residual expert
+#### Instagram residual expert (out of scope for the hackathon)
 
 The Instagram expert learns to predict whether an outfit post overperforms relative to its expected engagement.
 
@@ -427,7 +445,7 @@ actual engagement
 
 Where reach is unavailable, use within-creator and within-time-period ranks rather than comparing raw likes between creators.
 
-#### Depop residual expert
+#### Depop residual expert (out of scope for the hackathon)
 
 The Depop expert learns whether an item or styled listing overperforms relative to comparable listings.
 
@@ -441,16 +459,22 @@ actual demand
 
 Depop is a secondary signal because listing performance measures product demand more directly than complete-outfit preference. Its contribution should be learned from target-audience comparisons rather than fixed in advance.
 
-#### Visual style momentum
+#### Visual style momentum (out of scope for the hackathon)
 
-Style momentum is a proposed later signal, not required for the first model:
+Style momentum is a proposed later signal, not required for the first model.
+It is also structurally dependent on the two descoped residual experts: it embeds
+their source images, tracks *their* residual popularity over time, and needs at
+least two platforms for a cross-platform trend. With those experts descoped it has
+no inputs, so it is descoped with them.
+
+The retained design was:
 
 1. embed images from available sources;
 2. group visually similar outfits into style neighbourhoods;
 3. measure changes in residual popularity for each neighbourhood over time;
 4. use cross-platform acceleration as a weak trend signal.
 
-The first experiment should start with the Instagram and Depop experts. Add momentum only after the source residuals and time alignment can be measured reliably.
+If the source experts are ever rescoped, the first experiment should start with the Instagram and Depop experts. Add momentum only after the source residuals and time alignment can be measured reliably.
 
 ### Target-audience pair comparisons
 
@@ -560,13 +584,15 @@ Streaming-video VLMs are a post-hackathon investigation for continuous commentar
 The executable runtime contract and its remaining implementation checklist live in
 [`docs/specs/scoring-spec.md`](specs/scoring-spec.md).
 
-For a human-labelled pair, the calibration model compares the source-expert predictions:
+For a human-labelled pair, the calibration model compares the source-expert predictions.
+The three descoped source experts are retained below for reference and marked; the
+hackathon combiner uses the remaining four features only:
 
 ```text
 features(A, B) = [
-  instagram(A) - instagram(B),
-  depop(A) - depop(B),
-  momentum(A) - momentum(B),
+  instagram(A) - instagram(B),                                   [out of scope]
+  depop(A) - depop(B),                                           [out of scope]
+  momentum(A) - momentum(B),                                     [out of scope]
   component_quality(A) - component_quality(B),
   outfit_coordination(A) - outfit_coordination(B),
   body_fit(A) - body_fit(B),
@@ -578,9 +604,9 @@ The initial combiner can be pairwise logistic regression:
 
 ```text
 FITTED(A) =
-    weight_instagram × instagram(A)
-  + weight_depop     × depop(A)
-  + weight_momentum  × momentum(A)
+    weight_instagram × instagram(A)      [out of scope: hackathon]
+  + weight_depop     × depop(A)          [out of scope: hackathon]
+  + weight_momentum  × momentum(A)       [out of scope: hackathon]
   + weight_component × component_quality(A)
   + weight_outfit    × outfit_coordination(A)
   + weight_body_fit  × body_fit(A)
@@ -691,13 +717,13 @@ Exact acceptance thresholds remain **TBD** until a baseline has been measured.
 ### ML decisions still required
 
 - How exactly is the target audience defined and recruited?
-- What Instagram and Depop data can be obtained lawfully and reliably?
-- Which engagement and demand metrics are available for residual construction?
-- Which confounding variables can be measured for each source?
+- *(Deferred with the source experts)* What Instagram and Depop data can be obtained lawfully and reliably?
+- *(Deferred with the source experts)* Which engagement and demand metrics are available for residual construction?
+- *(Deferred with the source experts)* Which confounding variables can be measured for each source?
 - What image pool and held-out evaluation set will be used?
 - Does DINOv2 Small or SigLIP 2 Base provide the stronger frozen representation on person-disjoint FITTED comparisons?
-- Do Instagram and Depop experts add independent out-of-sample signal?
-- Does visual style momentum add useful signal after the first two experts?
+- *(Deferred with the source experts)* Do Instagram and Depop experts add independent out-of-sample signal?
+- *(Deferred with the source experts)* Does visual style momentum add useful signal after the first two experts?
 - Is full encoder fine-tuning eventually required?
 - What final score mapping, live-band width, and draw threshold meet the measured calibration and continuity targets?
 - How frequently should inference run?
@@ -736,8 +762,8 @@ Add a small Python inference service with:
 The hackathon inference service should combine, in priority order:
 
 1. a working paired-image VLM response with structured output;
-2. an Instagram residual expert built on cached frozen image embeddings, if the cleaned source data is ready;
-3. a Depop expert only if it improves held-out FITTED comparisons; and
+2. ~~an Instagram residual expert built on cached frozen image embeddings, if the cleaned source data is ready;~~ **out of scope for the hackathon**;
+3. ~~a Depop expert only if it improves held-out FITTED comparisons;~~ **out of scope for the hackathon**; and
 4. lightweight person, garment-visibility and pose signals described in [`cv-detection.md`](./specs/cv-detection.md).
 
 The VLM is used at battle completion for holistic assessment and explanation. A StreamingVLM deployment, continuous 30 FPS model inference, full visual-encoder fine-tuning and production C++/TensorRT optimisation are explicitly deferred until after the scoring concept is validated.
@@ -886,8 +912,9 @@ Only record choices here once the team has agreed to them.
 | Live estimate            | Shared seeded values in `55..85`, updated every 500 ms                   | Implemented for demo       | Replace with calibrated learned ranges later; never use the demo value to determine the final winner |
 | Round lifecycle          | Start one server-owned 5-second round when both players are score-ready; either player may finalise early | Implemented for hackathon | Clients derive the display deadline from server timestamps and never independently finalise at zero |
 | Live-to-final continuity | Calibrate the live band against the final scorer                         | Decided for hackathon      | Start at ±5 points, target 80% coverage, widen to at most 16 total points, then fall back to qualitative live status rather than false precision |
-| ML target                | Preference of the defined FITTED target audience                         | Current direction          | Social popularity supplies weak supervision; audience judgements calibrate the target                                                            |
-| ML formulation           | Source experts combined into a pairwise FITTED score                     | Current direction          | Instagram and Depop first; style momentum later if useful                                                                                        |
+| ML target                | Preference of the defined FITTED target audience                         | Current direction          | Audience judgements calibrate the target; social popularity as weak supervision is out of scope for the hackathon                                 |
+| ML formulation           | Source experts combined into a pairwise FITTED score                     | Current direction          | Hackathon uses visual signals plus the VLM only                                                                                                  |
+| Social/commercial experts | Instagram residual, Depop residual, visual style momentum               | **Out of scope (hackathon)** | Descoped, not deleted: designs retained above. Momentum depends on the other two and cannot be built without them                              |
 | Visual score composition | Component quality 45%, whole-outfit coordination 30%, body-aware fit 25% | Initial prototype decision | Deterministic defaults; learn constrained weights from target-audience labels later                                                              |
 | Personal attributes      | Face and body type excluded from the competitive score                   | Decided                    | Body-aware analysis measures garment fit and styling proportions only                                                                            |
 | Primary encoder          | Benchmark DINOv2 Small and SigLIP 2 Base                                 | Proposed                   | Use frozen embeddings; do not make full fine-tuning a hackathon dependency                                                                       |

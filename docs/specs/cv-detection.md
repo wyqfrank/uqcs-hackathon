@@ -681,7 +681,7 @@ fashion perception: DeepFashion2 / Fashionpedia
                          ↓
 generic compatibility: Polyvore, optional
                          ↓
-source experts: Instagram and Depop residual targets
+source experts: Instagram and Depop residual targets   [out of scope: hackathon]
                          ↓
 FITTED calibration: webcam-like human A/B labels
 ```
@@ -746,8 +746,8 @@ For each outfit, the later scoring service forms a compact feature vector:
 
 ```text
 x = [
-  instagram_score,
-  depop_score,
+  instagram_score,                 [out of scope: hackathon]
+  depop_score,                     [out of scope: hackathon]
   component_quality,
   outfit_coordination,
   body_fit,
@@ -796,8 +796,8 @@ StreamingVLM is deferred. The published [StreamingVLM](https://proceedings.iclr.
 - [ ] Establish a working paired-image VLM response and fallback first.
 - [ ] Prepare webcam-like calibration images and safe person/outfit/session splits.
 - [ ] Cache DINOv2 Small and/or SigLIP 2 Base embeddings rather than fine-tuning an encoder.
-- [ ] Train the Instagram residual head if its cleaned metadata is ready.
-- [ ] Add Depop only if its data is ready and it improves held-out FITTED agreement.
+- [ ] **Out of scope (hackathon):** Train the Instagram residual head if its cleaned metadata is ready.
+- [ ] **Out of scope (hackathon):** Add Depop only if its data is ready and it improves held-out FITTED agreement.
 - [ ] Train the small human-calibrated combiner.
 - [ ] Integrate frame-quality states, explanation, and result synchronisation.
 - [ ] Rehearse the complete two-laptop flow and failure recovery.
@@ -827,6 +827,6 @@ Evaluation tasks:
 - [ ] Measure the incremental value of every expert.
 - [ ] Record median and 95th-percentile live latency.
 
-Compare at least a VLM-only baseline, Instagram-only expert and human-calibrated ensemble. Remove an expert if it does not add held-out signal, regardless of its training-set performance.
+Compare at least a VLM-only baseline and the human-calibrated visual ensemble. Remove an expert if it does not add held-out signal, regardless of its training-set performance. The Instagram-only baseline is out of scope for the hackathon along with its expert.
 
 This document becomes **Final** only after the acceptance criteria are met and the open decisions required for the MVP are resolved.

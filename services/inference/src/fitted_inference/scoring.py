@@ -13,10 +13,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# Historical superset of feature names. The Instagram, Depop, and momentum
+# source experts are out of scope for the hackathon; the shipped baseline head
+# uses the three visual features only (see `create_visual_baseline_head`).
+# Retained for reference; this constant is currently unreferenced.
 DEFAULT_FEATURE_NAMES = (
-    "instagram",
-    "depop",
-    "momentum",
+    "instagram",  # out of scope: hackathon
+    "depop",  # out of scope: hackathon
+    "momentum",  # out of scope: hackathon
     "component_quality",
     "outfit_coordination",
     "body_fit",

@@ -76,8 +76,9 @@ visual-only baseline uses component quality `0.45`, outfit coordination `0.30`,
 and body-aware fit `0.25`. A probability is not product-facing confidence until
 held-out calibration has been measured.
 
-The final ensemble must not assume that raw Instagram, Depop, momentum, visual,
-and VLM experts naturally share a meaningful `0..100` scale. Before any source
+The final ensemble must not assume that raw visual and VLM experts naturally
+share a meaningful `0..100` scale. The same applies to the descoped Instagram,
+Depop, and momentum source experts if they are ever rescoped. Before any source
 expert is connected, a later artifact schema must record the fitted transform for
 each feature (for example centre, scale, and clipping bounds). Training fits the
 combiner on those transformed features and inference applies the exact same
