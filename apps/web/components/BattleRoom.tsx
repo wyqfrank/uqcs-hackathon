@@ -6,12 +6,19 @@ import { Camera, CameraOff, Copy, LogOut, Snowflake } from "lucide-react";
 import { useCamera } from "@/hooks/useCamera";
 import { useInference } from "@/hooks/useInference";
 import { useOutfitDetection } from "@/hooks/useOutfitDetection";
-import { useWebRTC } from "@/hooks/useWebRTC";
+import { useWebRTC, type ConnectionState } from "@/hooks/useWebRTC";
 import type { RoomRole } from "@/lib/signaling";
 import { BattleResult } from "./BattleResult";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { PlayerCard } from "./PlayerCard";
 import { Button } from "./ui/button";
+
+function connectionErrorTitle(state: ConnectionState): string {
+  if (state === "failed") return "NO VIDEO ROUTE";
+  // A rejected join is a room problem, not a network one.
+  if (state === "error") return "NO BATTLE FOUND";
+  return "SIGNAL LOST";
+}
 
 export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole }) {
   const router = useRouter();
@@ -41,14 +48,36 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
       <div className="battle-grid" />
       <nav className="battle-nav">
         <Button variant="bare" size="bare" className="wordmark wordmark-button" onClick={leave}>FITTED<span>®</span></Button>
-        <ConnectionStatus connection={rtc.connectionState} camera={camera.status} />
+        <ConnectionStatus
+          connection={rtc.connectionState}
+          camera={camera.status}
+          candidateTypes={rtc.candidateTypes}
+          route={rtc.route}
+        />
         <Button variant="bare" size="bare" className="room-code" onClick={copyRoomCode} aria-label={`Copy room code ${roomId}`}>
           <span>ROOM</span><b>{copied ? "COPIED!" : roomId}</b><Copy aria-hidden="true" />
         </Button>
       </nav>
 
+      {/* Camera and connection can fail independently, so neither hides the other. */}
       {(camera.error || rtc.error) && (
-        <div className="error-banner"><b>{camera.error ? "CAMERA UNAVAILABLE" : "SIGNAL LOST"}</b><span>{camera.error || rtc.error}</span></div>
+        <div className="error-stack">
+          {camera.error && (
+            <div className="error-banner">
+              <b>CAMERA UNAVAILABLE</b>
+              <span>{camera.error}</span>
+            </div>
+          )}
+          {rtc.error && (
+            <div className="error-banner">
+              <b>{connectionErrorTitle(rtc.connectionState)}</b>
+              <span>{rtc.error}</span>
+              {rtc.connectionState !== "error" && (
+                <a href="/diagnostics" target="_blank" rel="noreferrer">RUN NETWORK CHECK</a>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       <section className="arena">
@@ -71,7 +100,17 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
             label="THEM" number={role === "host" ? "02" : "01"} side="p2"
             stream={rtc.remoteStream} videoRef={remoteVideoRef} muted={false}
             score={remoteInference.score} analysing={remoteInference.isAnalysing}
-            waitingText={rtc.connectionState === "connecting" ? "CONNECTING" : "WAITING FOR OPPONENT"}
+            waitingText={
+              rtc.connectionState === "connected"
+                ? "OPPONENT CAMERA OFF"
+                : rtc.connectionState === "connecting"
+                  ? "CONNECTING"
+                  : rtc.connectionState === "searching"
+                    ? `LOOKING FOR ${roomId}`
+                    : rtc.connectionState === "error"
+                      ? "NO BATTLE FOUND"
+                      : "WAITING FOR OPPONENT"
+            }
           />
         </div>
 
