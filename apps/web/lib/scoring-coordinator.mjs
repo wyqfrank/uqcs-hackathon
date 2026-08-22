@@ -120,6 +120,7 @@ export class ScoringCoordinator {
     now = Date.now,
     createId = randomUUID,
     roundDurationMs = 5000,
+    roundLeadInMs = 3000,
     collectionTimeoutMs = 5000,
     // Five samples. Measured provider latency does not scale with frame count
     // — three pairs and one pair both returned in six to seven seconds — so the
@@ -145,6 +146,8 @@ export class ScoringCoordinator {
     this.now = now;
     this.createId = createId;
     this.roundDurationMs = roundDurationMs;
+    // Lead-in before scoring opens, so players are not judged mid-fidget.
+    this.roundLeadInMs = roundLeadInMs;
     this.collectionTimeoutMs = collectionTimeoutMs;
     this.burstOffsetsMs = [...burstOffsetsMs];
     this.burstSlotTimeoutMs = burstSlotTimeoutMs;
@@ -191,6 +194,9 @@ export class ScoringCoordinator {
     const state = this.rooms.get(roomId);
     if (state?.phase === "final" && state.result) socket.emit("score-result", state.result);
     if (state?.phase === "failed" && state.result) socket.emit("score-result", state.result);
+    if (state?.phase === "starting") {
+      socket.emit("score-round-starting", this.leadInPayload(roomId, state));
+    }
     if (state?.phase === "countdown") {
       socket.emit("score-round-started", this.roundPayload(roomId, state));
     }
@@ -351,25 +357,61 @@ export class ScoringCoordinator {
     };
   }
 
+  leadInPayload(roomId, state) {
+    return {
+      battleId: roomId,
+      roundId: state.roundId,
+      serverNow: this.now(),
+      startsAt: state.startsAt,
+    };
+  }
+
+  /**
+   * A round now opens with a lead-in: both clients count down together, then
+   * scoring starts. Without it the scored window began the instant the second
+   * player was ready, so the first frames caught people still settling — and
+   * from the player's side the battle appeared to skip straight to analysing.
+   */
   startRound(roomId) {
     if (this.rooms.has(roomId)) return;
     const state = {
-      phase: "countdown",
+      phase: "starting",
       roundId: this.createId(),
-      endsAt: this.now() + this.roundDurationMs,
+      startsAt: this.now() + this.roundLeadInMs,
+      endsAt: null,
       timer: null,
       slotTimers: [],
       abortController: null,
       result: null,
       pairedIdentity: [],
     };
+    this.rooms.set(roomId, state);
+
+    // A zero lead-in opens scoring synchronously, so callers that do not want
+    // the beat (tests, and anyone setting FITTED_ROUND_LEAD_IN_MS=0) see the
+    // original behaviour exactly.
+    if (this.roundLeadInMs <= 0) {
+      this.openScoringWindow(roomId, state);
+      return;
+    }
+
+    state.timer = setTimeout(() => {
+      if (this.rooms.get(roomId) !== state || state.phase !== "starting") return;
+      this.openScoringWindow(roomId, state);
+    }, this.roundLeadInMs);
+    state.timer.unref?.();
+    this.io.to(roomId).emit("score-round-starting", this.leadInPayload(roomId, state));
+  }
+
+  openScoringWindow(roomId, state) {
+    state.phase = "countdown";
+    state.endsAt = this.now() + this.roundDurationMs;
     state.timer = setTimeout(() => {
       if (this.rooms.get(roomId) === state && state.phase === "countdown") {
         this.beginFinalisation(roomId, state);
       }
     }, this.roundDurationMs);
     state.timer.unref?.();
-    this.rooms.set(roomId, state);
     this.io.to(roomId).emit("score-round-started", this.roundPayload(roomId, state));
   }
 

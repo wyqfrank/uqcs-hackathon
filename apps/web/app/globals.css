@@ -1395,41 +1395,26 @@ kbd {
   box-shadow: var(--raised), var(--drop);
 }
 
-/* --- Round timer (non-blocking) ------------------------------------------ */
+/* --- Round lead-in ------------------------------------------------------- */
 
-/* Sits in the gutter between the panels so neither player is covered, and
-   never intercepts pointer events — the round is live underneath it. */
-.round-timer {
-  position: fixed;
-  z-index: 20;
-  left: 50%;
-  top: 46%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  text-align: center;
-}
-.round-timer-eyebrow {
-  font-family: var(--font-arcade), monospace;
-  font-size: 1.15rem;
-  letter-spacing: .3em;
-  text-transform: uppercase;
-  color: var(--ko);
-  text-shadow: 0 2px 10px rgba(0, 0, 0, .95);
-}
-.round-timer-number {
+.countdown-number {
   display: block;
   font-family: var(--font-arcade), monospace;
-  font-size: clamp(4rem, 9vw, 7rem);
-  line-height: .9;
+  font-size: clamp(7rem, 26vw, 16rem);
+  line-height: .86;
   color: #fff;
   transform: skewX(var(--skew));
-  /* Heavy shadow instead of a scrim: legible over any feed without hiding it. */
-  text-shadow: 5px 5px 0 #000, 0 0 26px rgba(0, 0, 0, .95), 0 0 60px rgba(255, 106, 0, .5);
+  text-shadow: 8px 8px 0 #000, 0 0 60px rgba(255, 106, 0, .4);
+  /* steps() so it ticks like a cabinet rather than easing like a web page. */
   animation: countdown-pop .3s steps(4, end);
+}
+.countdown-hint {
+  margin: 0;
+  font-family: var(--font-arcade), monospace;
+  font-size: 1.35rem;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
 
 /* --- Result ------------------------------------------------------------- */

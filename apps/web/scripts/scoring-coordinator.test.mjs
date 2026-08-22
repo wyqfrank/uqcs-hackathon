@@ -38,6 +38,8 @@ function setup(fetchImpl, options = {}) {
     fetchImpl,
     createId: () => `id-${++id}`,
     roundDurationMs: options.roundDurationMs ?? 1000,
+    // Most tests are about the scored window, not the lead-in.
+    roundLeadInMs: options.roundLeadInMs ?? 0,
     collectionTimeoutMs: options.collectionTimeoutMs ?? 80,
     burstOffsetsMs: options.burstOffsetsMs ?? [0],
     burstSlotTimeoutMs: options.burstSlotTimeoutMs ?? 40,
@@ -212,6 +214,50 @@ test("live garment inference has zero queue depth while a pair is in flight", as
   assert.equal(io.events.filter(({ name }) => name === "garment-frame-request").length, 1);
   finishRequest({ ok: false, status: 503, json: async () => ({ detail: "disabled" }) });
   await flush();
+});
+
+test("a configured lead-in holds scoring open until it elapses", async () => {
+  const { coordinator, io, host, guest } = setup(async () => {
+    throw new Error("inference must not run");
+  }, { roundLeadInMs: 20, roundDurationMs: 1000 });
+
+  ready(coordinator, host);
+  ready(coordinator, guest);
+
+  const state = coordinator.rooms.get("FIT-1234");
+  assert.equal(state.phase, "starting");
+  assert.equal(state.endsAt, null, "the scored window has no deadline yet");
+  assert.equal(io.events.filter(({ name }) => name === "score-round-starting").length, 1);
+  assert.equal(io.events.filter(({ name }) => name === "score-round-started").length, 0);
+
+  const starting = io.events.find(({ name }) => name === "score-round-starting");
+  assert.equal(typeof starting.payload.startsAt, "number");
+  assert.equal(starting.payload.roundId, state.roundId);
+
+  await new Promise((resolve) => setTimeout(resolve, 45));
+
+  assert.equal(state.phase, "countdown");
+  assert.equal(typeof state.endsAt, "number", "the scored window opens with a deadline");
+  assert.equal(io.events.filter(({ name }) => name === "score-round-started").length, 1);
+  // The round id survives the transition, so provisional scores stay keyed to it.
+  assert.equal(io.events.find(({ name }) => name === "score-round-started").payload.roundId, state.roundId);
+});
+
+test("a player reconnecting during the lead-in is told about it", () => {
+  const { coordinator, host, guest } = setup(async () => {
+    throw new Error("inference must not run");
+  }, { roundLeadInMs: 50 });
+
+  ready(coordinator, host);
+  ready(coordinator, guest);
+  assert.equal(coordinator.rooms.get("FIT-1234").phase, "starting");
+
+  const rejoiner = new FakeSocket("rejoin-socket");
+  coordinator.attachSocket(rejoiner);
+  coordinator.assignPlayer(rejoiner, "FIT-1234", "guest");
+
+  const told = rejoiner.events.filter(({ name }) => name === "score-round-starting");
+  assert.equal(told.length, 1, "the rejoining client receives the lead-in, not silence");
 });
 
 test("role-derived readiness starts exactly one server countdown", () => {

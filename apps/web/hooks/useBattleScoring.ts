@@ -19,6 +19,13 @@ type ReadinessUpdated = {
   playerBReady: boolean;
 };
 
+type RoundStarting = {
+  battleId: string;
+  roundId: string;
+  serverNow: number;
+  startsAt: number;
+};
+
 type RoundStarted = {
   battleId: string;
   roundId: string;
@@ -227,6 +234,25 @@ export function useBattleScoring(
         ? { phase: "waiting_ready", ...readinessRef.current }
         : current);
     };
+    const onRoundStarting = (event: RoundStarting) => {
+      if (event.battleId !== roomId) return;
+      stopCountdown();
+      activeFinalisationRef.current = null;
+      submittedRequestsRef.current.clear();
+      setRequestError(null);
+      setProvisionalScores(null);
+      const localStart = performance.now() + Math.max(0, event.startsAt - event.serverNow);
+      const tick = () => {
+        if (!active) return;
+        setState({
+          phase: "starting",
+          roundId: event.roundId,
+          secondsRemaining: countdownSeconds(localStart, performance.now()),
+        });
+      };
+      tick();
+      countdownTimerRef.current = setInterval(tick, COUNTDOWN_TICK_MS);
+    };
     const onRoundStarted = (event: RoundStarted) => {
       if (event.battleId !== roomId) return;
       stopCountdown();
@@ -322,6 +348,7 @@ export function useBattleScoring(
 
     socket.on("score-rematch", onRematch);
     socket.on("score-readiness-updated", onReadiness);
+    socket.on("score-round-starting", onRoundStarting);
     socket.on("score-round-started", onRoundStarted);
     socket.on("score-round-cancelled", onRoundCancelled);
     socket.on("score-finalisation-started", onStarted);
@@ -333,6 +360,7 @@ export function useBattleScoring(
       stopCountdown();
       socket.off("score-rematch", onRematch);
       socket.off("score-readiness-updated", onReadiness);
+      socket.off("score-round-starting", onRoundStarting);
       socket.off("score-round-started", onRoundStarted);
       socket.off("score-round-cancelled", onRoundCancelled);
       socket.off("score-finalisation-started", onStarted);

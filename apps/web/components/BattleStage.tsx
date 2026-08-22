@@ -165,7 +165,7 @@ export function BattleStage({
         <BattleResult state={scoring.state} role={role} />
       </section>
 
-      {scoring.state.phase === "countdown" && (
+      {scoring.state.phase === "starting" && (
         <CountdownOverlay secondsRemaining={scoring.state.secondsRemaining} />
       )}
 

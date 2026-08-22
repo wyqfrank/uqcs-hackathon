@@ -55,6 +55,10 @@ export const SCENARIOS: Scenario[] = [
     state: { phase: "waiting_ready", playerAReady: true, playerBReady: false },
   },
   {
+    id: "starting", label: "Lead-in · get set",
+    state: { phase: "starting", roundId: "r1", secondsRemaining: 3 },
+  },
+  {
     id: "countdown", label: "Round live",
     state: { phase: "countdown", roundId: "r1", secondsRemaining: 3 },
     scores: [74.2, 71.8], provisional: true,
