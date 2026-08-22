@@ -49,6 +49,8 @@ const socketRooms = new Map();
 const scoring = new ScoringCoordinator({
   io,
   inferenceUrl: process.env.FITTED_INFERENCE_API_URL || "http://localhost:8000",
+  roundDurationMs: Number(process.env.FITTED_ROUND_DURATION_MS || 30000),
+  maxBurstBytes: Number(process.env.FITTED_MAX_BURST_BYTES || 15 * 1024 * 1024),
 });
 
 function leaveCurrentRoom(socket) {
