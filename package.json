@@ -15,6 +15,7 @@
     "test": "npm run test:web && npm run test:signaling && npm run test:api",
     "test:web": "npm run test:unit --workspace @fitted/web",
     "test:signaling": "npm run test:signaling --workspace @fitted/web",
+    "test:turn": "npm run test:turn --workspace @fitted/web",
     "test:api": "node scripts/python.mjs -m pytest services/inference",
     "typecheck": "npm run typecheck --workspace @fitted/web",
     "lint:api": "node scripts/python.mjs -m ruff check services/inference",
