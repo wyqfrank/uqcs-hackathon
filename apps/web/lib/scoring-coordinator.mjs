@@ -54,7 +54,9 @@ export function describeMissingFrames(slots) {
   const labels = { player_a: "Player 1", player_b: "Player 2" };
   const parts = [];
   for (const role of ["player_a", "player_b"]) {
-    const supplied = slots.some((slot) => slot.frames?.[role]);
+    // slot.frames is cleared when a pair is incomplete, so responses is the
+    // only record of who actually delivered.
+    const supplied = slots.some((slot) => slot.responses?.[role] === "frame");
     if (supplied) continue;
     const reason = slots
       .map((slot) => slot.reasons?.[role])
@@ -85,9 +87,13 @@ export class ScoringCoordinator {
     now = Date.now,
     createId = randomUUID,
     roundDurationMs = 5000,
-    collectionTimeoutMs = 3000,
+    collectionTimeoutMs = 5000,
     burstOffsetsMs = [0, 750, 1500],
-    burstSlotTimeoutMs = 650,
+    // The host machine also runs the inference service, the model on the GPU,
+    // the dev server and the tunnel, so its browser needs far longer than an
+    // idle laptop to capture, encode and upload a frame. 650 ms was comfortable
+    // for the guest and unreachable for the host, which failed every battle.
+    burstSlotTimeoutMs = 2000,
     inferenceTimeoutMs = 30000,
     perceptionIntervalMs = 1000,
     perceptionTimeoutMs = 5000,

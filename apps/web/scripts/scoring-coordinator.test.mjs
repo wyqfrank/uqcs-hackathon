@@ -551,7 +551,11 @@ test("a leaderboard failure does not surface to the battle", async () => {
 
 const slotsWith = (reasons, supplied = {}) => [0, 1, 2].map(() => ({
   reasons: { player_a: null, player_b: null, ...reasons },
-  frames: { player_a: null, player_b: null, ...supplied },
+  responses: {
+    player_a: supplied.player_a ? "frame" : "unavailable",
+    player_b: supplied.player_b ? "frame" : "unavailable",
+  },
+  frames: { player_a: null, player_b: null },
 }));
 
 test("names the player whose framing failed instead of blaming cameras", () => {
@@ -587,4 +591,18 @@ test("does not accuse anyone when both sides did supply frames", () => {
   );
 
   assert.match(message, /could not be paired in time/);
+});
+
+test("does not blame a player whose frames were discarded with the pair", () => {
+  // settleBurstSlot nulls both frames when a pair is incomplete, so attribution
+  // has to come from responses or the supplier gets blamed too.
+  const slots = [0, 1, 2].map(() => ({
+    reasons: { player_a: "partial_outfit", player_b: null },
+    responses: { player_a: "pending", player_b: "frame" },
+    frames: { player_a: null, player_b: null },
+  }));
+
+  const message = describeMissingFrames(slots);
+  assert.match(message, /Player 1/);
+  assert.doesNotMatch(message, /Player 2/);
 });
