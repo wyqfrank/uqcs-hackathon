@@ -22,13 +22,21 @@ function connectionErrorTitle(state: ConnectionState): string {
   return "SIGNAL LOST";
 }
 
-export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole }) {
+export function BattleRoom({
+  roomId,
+  role,
+  playerName = "",
+}: {
+  roomId: string;
+  role: RoomRole;
+  playerName?: string;
+}) {
   const router = useRouter();
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [copied, setCopied] = useState(false);
   const camera = useCamera(true);
-  const rtc = useWebRTC(roomId, role, camera.stream);
+  const rtc = useWebRTC(roomId, role, camera.stream, playerName);
   const outfitDetection = useOutfitDetection(localVideoRef, Boolean(camera.stream));
   const localScoreReady =
     rtc.connectionState === "connected"

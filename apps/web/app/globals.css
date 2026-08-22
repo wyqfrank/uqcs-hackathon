@@ -1060,3 +1060,42 @@ button:focus-visible, input:focus-visible {
   font-size: 1rem;
   letter-spacing: .08em;
 }
+
+/* --- Name gate ---------------------------------------------------------- */
+.name-gate .name-form { display: flex; flex-direction: column; gap: 12px; width: min(360px, 90vw); margin: 26px auto 0; text-align: left; }
+.name-gate .name-form label { font-size: .55rem; letter-spacing: .18em; color: var(--text-dimmer); }
+.name-gate .gate-link { display: inline-block; margin-top: 24px; color: var(--text-dimmer); font-size: .58rem; font-weight: 700; letter-spacing: .15em; }
+.name-gate .gate-link:hover { color: var(--ko); }
+
+/* --- Leaderboard -------------------------------------------------------- */
+.board { list-style: none; margin: 22px 0 0; padding: 0; border: 2px solid var(--outline); background: var(--cabinet); }
+.board-head, .board-row {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) 64px 68px 72px;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 18px;
+}
+.board-head { border-bottom: 2px solid var(--outline); background: var(--sunken); font-size: .52rem; letter-spacing: .16em; color: var(--text-faint); }
+.board-head span:not(:nth-child(2)) { text-align: right; }
+.board-head span:first-child { text-align: left; }
+.board-row { border-bottom: 1px solid var(--panel-3); }
+.board-row:last-child { border-bottom: 0; }
+.board-rank { font-size: .58rem; letter-spacing: .12em; color: var(--text-faint); }
+.board-name { font-size: .95rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-wins, .board-best, .board-played { text-align: right; font-size: .9rem; color: var(--text-dim); }
+.board-wins { color: var(--foreground); font-weight: 600; }
+.board-row.is-podium .board-rank { color: var(--ko); }
+.board-row.rank-1 { background: rgba(255, 106, 0, .07); }
+.board-row.rank-1 .board-name, .board-row.rank-1 .board-wins { color: var(--ko-light); }
+.board-row.rank-2 .board-rank, .board-row.rank-3 .board-rank { color: var(--text-dim); }
+
+.empty-board { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 52px 20px; border: 2px dashed var(--panel-3); text-align: center; }
+.empty-board svg { width: 30px; color: var(--text-ghost); }
+.empty-board b { font-size: .72rem; letter-spacing: .14em; color: var(--text-dim); }
+.empty-board span { font-size: .78rem; color: var(--text-dimmer); }
+
+@media (max-width: 620px) {
+  .board-head, .board-row { grid-template-columns: 48px minmax(0, 1fr) 46px 56px; gap: 10px; padding: 12px 13px; }
+  .board-head span:nth-child(5), .board-played { display: none; }
+}

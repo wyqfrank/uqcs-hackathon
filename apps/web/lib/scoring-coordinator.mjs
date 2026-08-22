@@ -46,6 +46,7 @@ export class ScoringCoordinator {
   constructor({
     io,
     inferenceUrl,
+    leaderboard = null,
     fetchImpl = fetch,
     now = Date.now,
     createId = randomUUID,
@@ -61,6 +62,7 @@ export class ScoringCoordinator {
   }) {
     this.io = io;
     this.inferenceUrl = inferenceUrl.replace(/\/$/, "");
+    this.leaderboard = leaderboard;
     this.fetchImpl = fetchImpl;
     this.now = now;
     this.createId = createId;
@@ -100,9 +102,9 @@ export class ScoringCoordinator {
     });
   }
 
-  assignPlayer(socket, roomId, role) {
+  assignPlayer(socket, roomId, role, displayName = "") {
     const playerRole = role === "host" ? "player_a" : "player_b";
-    this.players.set(socket.id, { roomId, playerRole });
+    this.players.set(socket.id, { roomId, playerRole, displayName });
     const readiness = this.ensureReadiness(roomId);
     readiness[playerRole] = false;
     const state = this.rooms.get(roomId);
@@ -122,6 +124,38 @@ export class ScoringCoordinator {
       ({ roomId: assignedRoom }) => assignedRoom === roomId,
     ).length;
     if (playerCount >= 2 && state?.phase !== "final") this.startPerception(roomId);
+  }
+
+  /**
+   * Credits both players once a battle reaches an authoritative result. Recorded
+   * server-side from the single finalisation, so neither client can inflate its
+   * own record and a draw credits nobody a win.
+   */
+  recordStandings(roomId, result) {
+    if (!this.leaderboard) return;
+    const named = new Map();
+    for (const player of this.players.values()) {
+      if (player.roomId === roomId && player.displayName) {
+        named.set(player.playerRole, player.displayName);
+      }
+    }
+
+    const players = [
+      { role: "player_a", score: result.playerAScore },
+      { role: "player_b", score: result.playerBScore },
+    ]
+      .filter(({ role }) => named.has(role))
+      .map(({ role, score }) => ({
+        name: named.get(role),
+        score: Number.isFinite(score) ? score : 0,
+        won: result.winner === role,
+      }));
+
+    if (!players.length) return;
+    Promise.resolve(this.leaderboard.recordBattle(players)).catch((error) => {
+      // A leaderboard write must never take the battle down with it.
+      console.error("Could not record battle standings:", error?.message ?? error);
+    });
   }
 
   leave(socketId) {
@@ -725,6 +759,7 @@ export class ScoringCoordinator {
       state.phase = result.phase === "final" ? "final" : "failed";
       state.abortController = null;
       this.io.to(roomId).emit("score-result", result);
+      if (state.phase === "final") this.recordStandings(roomId, result);
       if (state.phase === "failed") this.startPerception(roomId);
     } catch (error) {
       if (this.rooms.get(roomId) !== state) return;

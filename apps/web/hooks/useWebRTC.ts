@@ -35,6 +35,7 @@ export function useWebRTC(
   roomId: string,
   role: RoomRole,
   localStream: MediaStream | null,
+  playerName = "",
 ) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>("waiting");
@@ -204,7 +205,7 @@ export function useWebRTC(
         const eventName = role === "host" ? "create-room" : "join-room";
         activeSocket.emit(
           eventName,
-          { roomId },
+          { roomId, playerName },
           (acknowledgement: RoomAcknowledgement) => {
             if (!active) return;
             if (acknowledgement.ok) {
@@ -298,7 +299,7 @@ export function useWebRTC(
       socketRef.current = null;
       setSocket(null);
     };
-  }, [role, roomId]);
+  }, [role, roomId, playerName]);
 
   return {
     remoteStream,

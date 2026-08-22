@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import next from "next";
 import { Server as SocketIOServer } from "socket.io";
 import { ScoringCoordinator } from "./lib/scoring-coordinator.mjs";
+import { leaderboard, normaliseName } from "./lib/leaderboard.mjs";
 
 // Next reads env files relative to apps/web. Secrets shared with the Python
 // service naturally live at the repo root, so load those too — without
@@ -59,6 +60,7 @@ const scoring = new ScoringCoordinator({
   inferenceUrl: process.env.FITTED_INFERENCE_API_URL || "http://localhost:8000",
   roundDurationMs,
   maxBurstBytes,
+  leaderboard,
 });
 
 function leaveCurrentRoom(socket) {
@@ -74,7 +76,7 @@ function leaveCurrentRoom(socket) {
 io.on("connection", (socket) => {
   scoring.attachSocket(socket);
 
-  socket.on("create-room", async ({ roomId }, acknowledge) => {
+  socket.on("create-room", async ({ roomId, playerName }, acknowledge) => {
     const normalizedRoomId = String(roomId || "").toUpperCase();
     const sockets = await io.in(normalizedRoomId).fetchSockets();
 
@@ -91,14 +93,14 @@ io.on("connection", (socket) => {
     leaveCurrentRoom(socket);
     await socket.join(normalizedRoomId);
     socketRooms.set(socket.id, normalizedRoomId);
-    scoring.assignPlayer(socket, normalizedRoomId, "host");
+    scoring.assignPlayer(socket, normalizedRoomId, "host", normaliseName(playerName));
     acknowledge({ ok: true, role: "host" });
     // A creator may be reconnecting after restarting their camera. If the guest
     // stayed in the room, tell the host to make a fresh WebRTC offer.
     if (sockets.length === 1) socket.emit("peer-joined");
   });
 
-  socket.on("join-room", async ({ roomId }, acknowledge) => {
+  socket.on("join-room", async ({ roomId, playerName }, acknowledge) => {
     const normalizedRoomId = String(roomId || "").toUpperCase();
     const sockets = await io.in(normalizedRoomId).fetchSockets();
 
@@ -116,7 +118,7 @@ io.on("connection", (socket) => {
     leaveCurrentRoom(socket);
     await socket.join(normalizedRoomId);
     socketRooms.set(socket.id, normalizedRoomId);
-    scoring.assignPlayer(socket, normalizedRoomId, "guest");
+    scoring.assignPlayer(socket, normalizedRoomId, "guest", normaliseName(playerName));
     acknowledge({ ok: true, role: "guest" });
     socket.to(normalizedRoomId).emit("peer-joined");
   });

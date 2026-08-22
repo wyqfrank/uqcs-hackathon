@@ -33,9 +33,15 @@ class FakeCuda:
         return self.available
 
 
+class FakeBackends:
+    def __init__(self, mps_available: bool) -> None:
+        self.mps = FakeCuda(mps_available)
+
+
 class FakeTorch:
-    def __init__(self, cuda_available: bool = True) -> None:
+    def __init__(self, cuda_available: bool = True, mps_available: bool = False) -> None:
         self.cuda = FakeCuda(cuda_available)
+        self.backends = FakeBackends(mps_available)
 
 
 class FakePrediction:
@@ -266,5 +272,48 @@ def test_missing_rfdetr_and_cuda_report_not_ready(tmp_path, monkeypatch) -> None
             expected_sha256=digest,
             model_factory=lambda **_kwargs: FakeModel(),
             torch_module=FakeTorch(cuda_available=False),
+            installed_rfdetr_version="1.9.3",
+        )
+
+
+def test_mps_is_accepted_so_the_gate_can_run_on_apple_silicon(tmp_path) -> None:
+    path, digest = make_checkpoint(tmp_path)
+
+    detector = RFDetrGarmentDetector(
+        path,
+        expected_sha256=digest,
+        device="mps",
+        model_factory=lambda **_kwargs: FakeModel(),
+        torch_module=FakeTorch(cuda_available=False, mps_available=True),
+        installed_rfdetr_version="1.9.3",
+    )
+
+    assert detector is not None
+
+
+def test_mps_requested_without_mps_support_reports_not_ready(tmp_path) -> None:
+    path, digest = make_checkpoint(tmp_path)
+
+    with pytest.raises(GarmentModelNotReadyError, match="MPS-enabled"):
+        RFDetrGarmentDetector(
+            path,
+            expected_sha256=digest,
+            device="mps",
+            model_factory=lambda **_kwargs: FakeModel(),
+            torch_module=FakeTorch(cuda_available=False, mps_available=False),
+            installed_rfdetr_version="1.9.3",
+        )
+
+
+def test_cpu_stays_rejected_because_it_cannot_be_live(tmp_path) -> None:
+    path, digest = make_checkpoint(tmp_path)
+
+    with pytest.raises(GarmentModelNotReadyError, match="CUDA or MPS"):
+        RFDetrGarmentDetector(
+            path,
+            expected_sha256=digest,
+            device="cpu",
+            model_factory=lambda **_kwargs: FakeModel(),
+            torch_module=FakeTorch(cuda_available=False, mps_available=True),
             installed_rfdetr_version="1.9.3",
         )
