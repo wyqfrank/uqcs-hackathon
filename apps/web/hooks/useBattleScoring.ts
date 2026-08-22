@@ -168,8 +168,11 @@ export function useBattleScoring(
 
       const capturedAtEpochMs = performance.timeOrigin + candidate.capturedAt;
       const blob = await encodeAndCloseImageBitmap(candidate.crop, {
-        maxWidth: 640,
-        quality: 0.82,
+        // Upload time scales with frame size where model latency does not, and
+        // browsers without WebP fall back to a much heavier JPEG. 512px at 0.72
+        // is ample for judging an outfit crop.
+        maxWidth: 512,
+        quality: 0.72,
         format: "image/webp",
       });
       if (!blob) {
