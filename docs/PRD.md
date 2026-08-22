@@ -102,7 +102,10 @@ Last verified against the working tree on 2026-08-22.
       `vlm` extra fails at collection because three test modules import `PIL`.
       `pillow` is now also declared in `dev` so the suite collects regardless of
       which extra is selected.
-- [ ] Real webcam, motion, detection, scoring, and two-device behaviour are verified together.
+- [x] Real webcam, motion, detection, scoring, and two-device behaviour are verified
+      together: two laptops on the venue network completed a battle to an
+      authoritative Gemini score, with garment perception live throughout and the
+      winner recorded on the leaderboard.
 
 ---
 
