@@ -144,3 +144,34 @@ describe("flat pool (no metadata)", () => {
     }
   });
 });
+
+describe("serving a split subset", () => {
+  const images = pool(60);
+  const all = buildPairs(images, { seed: 5, target: 300 });
+
+  it("filtering the full build keeps ids and order intact", () => {
+    const served = all.filter((pair) => pair.split === "test" || pair.split === "val");
+    expect(served.length).toBeGreaterThan(0);
+    expect(served.length).toBeLessThan(all.length);
+    // Every served pair is one the unfiltered build already produced, so a
+    // decision collected against the full set still matches by id.
+    const ids = new Set(all.map((pair) => pair.id));
+    for (const pair of served) expect(ids.has(pair.id)).toBe(true);
+    // Relative order is unchanged, so raters walk the same sequence.
+    expect(served.map((pair) => pair.id)).toEqual(
+      all.filter((pair) => served.some((s) => s.id === pair.id)).map((pair) => pair.id),
+    );
+  });
+
+  it("building from a pre-filtered pool would produce a different set", () => {
+    // This is why the pool route builds from every image and filters after:
+    // narrowing the pool first changes the quota share and the rng draws, so
+    // the ids no longer line up with decisions already collected.
+    const fromSubset = buildPairs(
+      images.filter((image) => image.split === "test"),
+      { seed: 5, target: 300 },
+    );
+    const servedIds = all.filter((pair) => pair.split === "test").map((pair) => pair.id);
+    expect(fromSubset.map((pair) => pair.id)).not.toEqual(servedIds);
+  });
+});

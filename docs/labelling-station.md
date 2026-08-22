@@ -95,6 +95,34 @@ canonical order.
 Reason tags are collected on ~35% of pairs and dimension judgements on ~25%,
 matching the PRD's 20–30% guidance, so the primary task stays fast.
 
+## Rating a subset (`?splits=`)
+
+By default `/label` serves every pair in one deterministic shuffled order, which
+mixes the splits together. A second or third rater usually should not walk that
+whole list — repeat judgements are worth most on the **evaluation** splits, where
+label noise lands straight in the held-out number and cannot be averaged away.
+Training noise, by contrast, washes out across hundreds of rows.
+
+Point an additional rater at those splits:
+
+```text
+/label?splits=val,test        # the evaluation pairs
+/label?splits=test            # the held-out set only
+/label                        # everything, unchanged
+```
+
+Accepts `train`, `val`, `test`, comma-separated. An unknown name is reported
+rather than silently serving nothing.
+
+**Pairs are always built from the whole pool and filtered afterwards.** Narrowing
+the pool *before* building would change each split's quota share and the rng
+draws, producing different pair ids — which would orphan every decision already
+collected. `lib/labelling/pairing.test.ts` locks this in.
+
+A second rater on the held-out split is not contamination. Holdout discipline is
+about never *fitting* on those pairs; extra independent judgements only improve
+the target you evaluate against.
+
 ## Rating
 
 Keyboard-first, because throughput is the point:

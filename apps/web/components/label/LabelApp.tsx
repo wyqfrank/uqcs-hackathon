@@ -2,11 +2,27 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { Pair, PoolImage, Rater } from "@/lib/labelling/types";
+import type { Pair, PoolImage, Rater, Split } from "@/lib/labelling/types";
 import { LabelStation } from "./LabelStation";
 import { RaterSetup } from "./RaterSetup";
 
-type PoolResponse = { images: PoolImage[]; pairs: Pair[]; error?: string };
+type PoolResponse = {
+  images: PoolImage[];
+  pairs: Pair[];
+  splits?: Split[] | null;
+  error?: string;
+  detail?: string;
+};
+
+/**
+ * Reads `?splits=val,test` off the page URL. A second rater is usually pointed
+ * at the evaluation splits, where repeat judgements de-noise the held-out
+ * target instead of padding a training set that is already large enough.
+ */
+function requestedSplits(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("splits");
+}
 
 export function LabelApp() {
   const [rater, setRater] = useState<Rater | null>(null);
@@ -38,8 +54,12 @@ export function LabelApp() {
     let cancelled = false;
     (async () => {
       try {
+        const splits = requestedSplits();
+        const poolUrl = splits
+          ? `/api/label/pool?splits=${encodeURIComponent(splits)}`
+          : "/api/label/pool";
         const [poolRes, decisionsRes] = await Promise.all([
-          fetch("/api/label/pool"),
+          fetch(poolUrl),
           fetch(`/api/label/decisions?raterId=${encodeURIComponent(rater.id)}`),
         ]);
         if (!poolRes.ok || !decisionsRes.ok) throw new Error("Request failed");
@@ -68,6 +88,32 @@ export function LabelApp() {
 
   if (!pool || !done) return <div className="label-empty"><p>Loading pool…</p></div>;
 
+  if (pool.error === "bad-splits") {
+    return (
+      <div className="label-empty">
+        <h1>That split does not exist</h1>
+        <p>{pool.detail}</p>
+        <p>
+          Example: <code>/label?splits=val,test</code>
+        </p>
+      </div>
+    );
+  }
+
+  // A valid subset that happens to be empty is a different problem from an
+  // empty pool, and the fix is different too.
+  if (pool.splits && pool.pairs.length === 0) {
+    return (
+      <div className="label-empty">
+        <h1>No pairs in {pool.splits.join(" or ")}</h1>
+        <p>
+          The pool built no pairs for {pool.splits.length > 1 ? "these splits" : "this split"}.
+          Try <code>/label</code> without a filter to rate the whole set.
+        </p>
+      </div>
+    );
+  }
+
   if (pool.error === "pool-too-small" || pool.pairs.length === 0) {
     return (
       <div className="label-empty">
@@ -82,5 +128,13 @@ export function LabelApp() {
     );
   }
 
-  return <LabelStation rater={rater} images={pool.images} pairs={pool.pairs} alreadyDone={done} />;
+  return (
+    <LabelStation
+      rater={rater}
+      images={pool.images}
+      pairs={pool.pairs}
+      alreadyDone={done}
+      splits={pool.splits ?? null}
+    />
+  );
 }

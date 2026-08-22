@@ -15,6 +15,7 @@ import {
   type PoolImage,
   type Rater,
   type ReasonTag,
+  type Split,
   type Verdict,
 } from "@/lib/labelling/types";
 
@@ -47,11 +48,14 @@ export function LabelStation({
   images,
   pairs,
   alreadyDone,
+  splits = null,
 }: {
   rater: Rater;
   images: PoolImage[];
   pairs: Pair[];
   alreadyDone: string[];
+  /** Non-null when the rater was pointed at a subset via `?splits=`. */
+  splits?: Split[] | null;
 }) {
   const byId = useMemo(() => new Map(images.map((image) => [image.id, image])), [images]);
   const queue = useMemo(() => {
@@ -65,7 +69,14 @@ export function LabelStation({
   const [reasons, setReasons] = useState<ReasonTag[]>([]);
   const [dimensions, setDimensions] = useState<Partial<Record<Dimension, DimensionAnswer>>>({});
   const [dimensionIndex, setDimensionIndex] = useState(0);
-  const [saved, setSaved] = useState(alreadyDone.length);
+  // Count only decisions inside the served subset. `alreadyDone` covers every
+  // pair this rater has ever answered, so using its raw length would show a
+  // rater opening `?splits=test` as already part-way through.
+  const doneInScope = useMemo(() => {
+    const served = new Set(pairs.map((pair) => pair.id));
+    return alreadyDone.filter((id) => served.has(id)).length;
+  }, [pairs, alreadyDone]);
+  const [saved, setSaved] = useState(doneInScope);
   const shownAt = useRef(Date.now());
   const startedAt = useRef(Date.now());
 
@@ -211,7 +222,10 @@ export function LabelStation({
   return (
     <div className="label-station">
       <header className="label-bar">
-        <span>{rater.id} · {rater.cohort}</span>
+        <span>
+          {rater.id} · {rater.cohort}
+          {splits ? ` · ${splits.join(" + ")}` : ""}
+        </span>
         <div className="label-progress"><i style={{ width: `${(done / total) * 100}%` }} /></div>
         <span className="tabular-nums">{done} / {total}</span>
       </header>
