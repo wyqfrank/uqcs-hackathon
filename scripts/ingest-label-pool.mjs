@@ -76,20 +76,46 @@ function subjectFor(filename) {
 }
 
 const source = path.resolve(sourceDir);
-let entries;
-try {
-  entries = await readdir(source);
-} catch {
-  console.error(`Cannot read ${source}`);
-  process.exit(1);
+
+/**
+ * Walk the source tree. Archives usually extract into a wrapper folder, so a
+ * non-recursive scan reports "no images" for a directory that plainly has
+ * them. Returns paths relative to `source`.
+ */
+async function collectImages(dir, prefix = "") {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const found = [];
+  for (const entry of entries) {
+    // Skip macOS archive cruft and hidden directories.
+    if (entry.name.startsWith(".") || entry.name === "__MACOSX") continue;
+    const rel = prefix ? path.join(prefix, entry.name) : entry.name;
+    if (entry.isDirectory()) found.push(...(await collectImages(path.join(dir, entry.name), rel)));
+    else if (IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) found.push(rel);
+  }
+  return found;
 }
 
-const images = entries.filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase())).sort();
-
-if (images.length === 0) {
-  console.error(`No .jpg/.jpeg/.png/.webp files in ${source}`);
+const found = await collectImages(source);
+if (found.length === 0) {
+  console.error(`No .jpg/.jpeg/.png/.webp files under ${source}`);
   process.exit(1);
 }
+// Ids come from the basename only, so the wrapper folder cannot change them.
+const relByName = new Map();
+for (const rel of found) {
+  const base = path.basename(rel);
+  if (relByName.has(base)) {
+    console.error(`  ! duplicate filename in different folders: ${base} — ids would collide`);
+    process.exit(1);
+  }
+  relByName.set(base, rel);
+}
+const images = [...relByName.keys()].sort();
 
 if (flags.has("--clear") && !dryRun) {
   await rm(POOL_DIR, { recursive: true, force: true });
@@ -113,7 +139,7 @@ for (const name of images) {
     .replace(/^-|-$/g, "")
     .slice(0, 40)}${extension}`;
 
-  const sourcePath = path.join(source, name);
+  const sourcePath = path.join(source, relByName.get(name));
   const info = await stat(sourcePath);
   if (!info.isFile()) { skipped += 1; continue; }
 
