@@ -43,6 +43,11 @@ const FRAME_REASON_HINTS = {
   blurred: "the picture was too blurry",
   moving_too_fast: "they were moving too much",
   detector_unavailable: "the outfit detector was unavailable",
+  stale_finalisation: "their app was out of sync with the round — retry the score",
+  capture_failed: "their browser could not capture a frame",
+  no_stable_frame: "no steady frame was ready in time",
+  no_current_frame: "no frame was ready in time",
+  encoding_failed: "the captured frame could not be encoded",
 };
 
 /**

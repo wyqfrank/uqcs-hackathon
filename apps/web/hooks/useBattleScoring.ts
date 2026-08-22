@@ -144,6 +144,14 @@ export function useBattleScoring(
       }
       if (!active || activeFinalisationRef.current !== event.finalisationId) {
         candidate?.crop.close();
+        if (active) {
+          socket.emit("score-frame-unavailable", {
+            finalisationId: event.finalisationId,
+            requestId: event.requestId,
+            burstIndex: event.burstIndex,
+            reason: "stale_finalisation",
+          });
+        }
         return;
       }
       if (!candidate) {
@@ -175,7 +183,17 @@ export function useBattleScoring(
       }
 
       const image = await blob.arrayBuffer();
-      if (!active || activeFinalisationRef.current !== event.finalisationId) return;
+      if (!active || activeFinalisationRef.current !== event.finalisationId) {
+        if (active) {
+          socket.emit("score-frame-unavailable", {
+            finalisationId: event.finalisationId,
+            requestId: event.requestId,
+            burstIndex: event.burstIndex,
+            reason: "stale_finalisation",
+          });
+        }
+        return;
+      }
       socket.emit(
         "score-frame",
         {
@@ -245,11 +263,28 @@ export function useBattleScoring(
       setState({ phase: "collecting", finalisationId: event.finalisationId });
     };
     const onFrameRequest = (event: FrameRequest) => {
-      if (
-        event.battleId !== roomId
-        || event.finalisationId !== activeFinalisationRef.current
-      ) return;
-      void submitCurrentFrame(event);
+      if (event.battleId !== roomId) return;
+      // A request for a finalisation this client does not know about used to be
+      // dropped in silence, which the server could only record as "pending" —
+      // no frame and no reason. Say so instead.
+      if (event.finalisationId !== activeFinalisationRef.current) {
+        socket.emit("score-frame-unavailable", {
+          finalisationId: event.finalisationId,
+          requestId: event.requestId,
+          burstIndex: event.burstIndex,
+          reason: "stale_finalisation",
+        });
+        return;
+      }
+      void submitCurrentFrame(event).catch(() => {
+        // An exception mid-capture must not look like an unresponsive client.
+        socket.emit("score-frame-unavailable", {
+          finalisationId: event.finalisationId,
+          requestId: event.requestId,
+          burstIndex: event.burstIndex,
+          reason: "capture_failed",
+        });
+      });
     };
     const onAnalysing = (event: FinalisationAnalysing) => {
       if (
