@@ -42,7 +42,7 @@ This checklist is the high-level source of truth for specification and implement
 - [x] Socket.IO room creation, joining, capacity limits, SDP relay, leaving, and reconnection pass the signalling smoke test.
 - [x] Local camera lifecycle and camera error states are implemented.
 - [x] WebRTC local and remote video-feed handling is implemented.
-- [ ] The complete two-laptop flow is verified on the intended HTTPS demo environment.
+- [x] The complete two-laptop flow is verified on the intended HTTPS demo environment.
 - [x] Video-frame capture and latest-frame backpressure are implemented.
 - [x] Battle UI supports framing readiness, finalisation states, authoritative
       results, copying the room code, and leaving without fabricated scores.
