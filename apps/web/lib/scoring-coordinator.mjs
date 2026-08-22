@@ -121,6 +121,10 @@ export class ScoringCoordinator {
     createId = randomUUID,
     roundDurationMs = 5000,
     collectionTimeoutMs = 5000,
+    // Five samples. Measured provider latency does not scale with frame count
+    // — three pairs and one pair both returned in six to seven seconds — so the
+    // extra evidence is close to free on the model side. It does cost upload,
+    // which is why finalisation frames are encoded small.
     burstOffsetsMs = [0, 750, 1500, 2250, 3000],
     // The host machine also runs the inference service, the model on the GPU,
     // the dev server and the tunnel, so its browser needs far longer than an
