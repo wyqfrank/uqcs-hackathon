@@ -107,17 +107,17 @@ async def test_engine_builds_deterministic_final_score_without_holistic_double_c
 
 
 @pytest.mark.anyio
-async def test_engine_sends_three_chronological_pairs_in_one_provider_call() -> None:
+async def test_engine_sends_five_chronological_pairs_in_one_provider_call() -> None:
     provider = FakeProvider(assessment())
     engine = InferenceEngine(provider=provider)
-    images = [ComparisonImage(image_bytes(), "image/webp") for _ in range(3)]
+    images = [ComparisonImage(image_bytes(), "image/webp") for _ in range(5)]
 
     result = await engine.compare(context(), images, images)
 
     assert result.phase == "final"
     assert provider.calls == 1
-    assert len(provider.last_kwargs["player_a_images"]) == 3
-    assert len(provider.last_kwargs["player_b_images"]) == 3
+    assert len(provider.last_kwargs["player_a_images"]) == 5
+    assert len(provider.last_kwargs["player_b_images"]) == 5
 
 
 @pytest.mark.anyio
@@ -126,10 +126,10 @@ async def test_engine_rejects_unpaired_or_oversized_bursts_before_provider() -> 
     engine = InferenceEngine(provider=provider)
     image = ComparisonImage(image_bytes(), "image/webp")
 
-    with pytest.raises(InvalidComparisonImageError, match="one to three paired"):
+    with pytest.raises(InvalidComparisonImageError, match="one to five paired"):
         await engine.compare(context(), [image, image], [image])
-    with pytest.raises(InvalidComparisonImageError, match="one to three paired"):
-        await engine.compare(context(), [image] * 4, [image] * 4)
+    with pytest.raises(InvalidComparisonImageError, match="one to five paired"):
+        await engine.compare(context(), [image] * 6, [image] * 6)
 
     assert provider.calls == 0
 

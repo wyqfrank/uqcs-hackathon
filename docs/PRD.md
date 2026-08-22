@@ -54,8 +54,8 @@ This checklist is the high-level source of truth for specification and implement
 - [x] Grounding DINO is rejected as the live garment runtime after a measured approximately 10.6-second CPU inference.
 - [x] RF-DETR-Seg Small is selected as the only time-boxed live garment-perception candidate, with an explicit pass/fail gate.
 - [x] The RF-DETR adapter, batched garment API, server-owned 1 FPS zero-queue
-      transport, finalisation pause, and category-chip UI are implemented and covered
-      by automated tests.
+      transport, finalisation pause, category chips, and crop-mapped garment-box
+      overlays are implemented and covered by automated tests.
 - [ ] RF-DETR-Seg meets the live latency and correctness gate on representative webcam crops from the intended demo hardware.
 - [ ] Passing garment perception updates the live battle at approximately 1 FPS with one inference operation in flight and no queued frames.
 - [ ] A frozen visual-encoder baseline is implemented and evaluated.
@@ -67,9 +67,9 @@ This checklist is the high-level source of truth for specification and implement
       learned fast scoring path.
 - [x] Battle finalisation runs the configured VLM path, broadcasts exact scores
       and the winner or draw to both players, and locks the result against late work.
-- [x] Finalisation captures three current paired local frames approximately 750 ms
+- [x] Finalisation captures five current paired local frames approximately 750 ms
       apart using the latest valid crop geometry, with stable-candidate fallback,
-      and submits the available one-to-three complete pairs in one VLM call.
+      and submits the available one-to-five complete pairs in one VLM call.
 - [ ] Live-to-final range coverage, score error, leader reversals, and transition behaviour are verified on representative webcam battles.
 - [ ] Instagram residual labels and expert model are implemented.
 - [ ] Depop residual labels and expert model are implemented.
@@ -92,9 +92,9 @@ Last verified against the working tree on 2026-08-22.
 - [x] Production build passes (`npm run build`).
 - [x] Signalling smoke test passes (`npm run test:signaling`) — create, join,
       capacity, SDP relay, and reconnect.
-- [x] Web unit tests pass: 74 tests across 11 files covering scoring, garment
+- [x] Web unit tests pass: 75 tests across 11 files covering scoring, garment
       perception, frame capture, and the CV modules.
-- [x] Scoring coordinator tests pass: 26 tests covering readiness, countdown,
+- [x] Scoring coordinator tests pass: 27 tests covering readiness, countdown,
       burst capture, fallback, backpressure, stale work, and reconnect replay.
 - [x] Python inference tests pass: 63 passed, 1 skipped, covering the API,
       perception, RF-DETR, scoring and VLM engine. Requires `npm run setup`,
@@ -216,7 +216,7 @@ than directional.
 - Per-feed score HUD: an arcade `1UP`/`2UP` label and value set directly on the
   video over a gradient scrim, with a full-bleed segmented meter flush to the
   bottom edge at a 26px segment pitch. It is an overlay, not a card.
-- Garment category chips derived from live perception.
+- Garment category chips and labelled bounding boxes derived from live perception.
 - Outfit-detection overlay showing the canonical crop and pose landmarks.
 - Controls for camera, copying the room code, **finalising** the score, retrying
   a failed final score, and leaving.
@@ -253,8 +253,8 @@ Do not imply that the range is a calibrated confidence interval.
 When both players are connected and locally score-ready, the server starts one
 5-second round. At zero, or when either player finalises early, both clients
 enter the same final capture path and then **Analysing final result**. The server
-captures three current paired crops approximately 750 ms apart, scores the
-available one-to-three complete pairs in one request, broadcasts exact
+captures five current paired crops approximately 750 ms apart, scores the
+available one-to-five complete pairs in one request, broadcasts exact
 one-decimal scores and the final winner or draw to both clients, and locks the
 result. Late live responses cannot change it.
 
@@ -545,13 +545,13 @@ This dataset calibrates a low-capacity pairwise combiner over frozen expert outp
 
 ### VLM role
 
-For the hackathon, an image-capable VLM analyses one-to-three synchronised frame pairs captured as a final burst. It returns structured component-quality, whole-outfit coordination, body-aware fit, holistic, frame-quality and explanation fields. The fallback's public score uses only the deterministic 45/30/25 dimensions; the holistic value is retained for diagnostics and as a candidate feature for the later learned combiner so it is not double-counted. The application may use the VLM explanation in the final result experience.
+For the hackathon, an image-capable VLM analyses one-to-five synchronised frame pairs captured as a final burst. It returns structured component-quality, whole-outfit coordination, body-aware fit, holistic, frame-quality and explanation fields. The fallback's public score uses only the deterministic 45/30/25 dimensions; the holistic value is retained for diagnostics and as a candidate feature for the later learned combiner so it is not double-counted. The application may use the VLM explanation in the final result experience.
 
 The VLM's single `componentQuality` value is a fallback approximation. The final component branch remains the garment-aware calculation above, using per-component style, category importance, detection confidence, and visibility.
 
 Use **Gemini 3.6 Flash** for the hackathon's paired-image VLM fallback. Keep the provider boundary replaceable, but defer broad model comparison until after the hackathon unless Gemini blocks delivery.
 
-The VLM does not continuously process the 30 FPS webcam stream. Live video remains independent; finalisation requests three time-spaced local crops from each browser and sends the available one-to-three complete pairs to Gemini in one labelled request. Only one request per room may be in flight and stale work is discarded. The later learned scorer, not the VLM fallback, is responsible for approximately 1 FPS live scoring. Periodic VLM polling every 2–3 seconds is optional experimentation only.
+The VLM does not continuously process the 30 FPS webcam stream. Live video remains independent; finalisation requests five time-spaced local crops from each browser and sends the available one-to-five complete pairs to Gemini in one labelled request. Only one request per room may be in flight and stale work is discarded. The later learned scorer, not the VLM fallback, is responsible for approximately 1 FPS live scoring. Periodic VLM polling every 2–3 seconds is optional experimentation only.
 
 Streaming-video VLMs are a post-hackathon investigation for continuous commentary, garment movement or long-session memory. They are not required for outfit scoring, where the visual state changes slowly relative to the video frame rate.
 
@@ -749,7 +749,7 @@ stable buffered crop. Each available crop is encoded as WebP at up to 640 pixels
 wide and submitted with slot, sample, and capture-time metadata. The Node room
 coordinator derives room and player role from the socket,
 retains only the newest valid submission for each role and slot, discards
-incomplete slots, and invokes comparison once with the available one-to-three
+incomplete slots, and invokes comparison once with the available one-to-five
 complete pairs. Stale and superseded frames are discarded and prototype frames
 are not persisted.
 
@@ -760,10 +760,10 @@ other player's scoring input.
 
 ```text
 Laptop A <──────────── WebRTC video ────────────> Laptop B
-   | three timed local crops              three timed local crops |
+   | five timed local crops               five timed local crops  |
    +----------------> server-side pairing coordinator <----------+
                               |
-                one-to-three complete A/B pairs
+                 one-to-five complete A/B pairs
                               v
                     Python inference service
                               |
@@ -776,7 +776,7 @@ Laptop A <──────────── WebRTC video ──────�
 
 **TBD:**
 
-- the measured capture-time skew tolerance beyond the three-second collection deadline;
+- the measured capture-time skew tolerance beyond the five-second collection deadline;
 - deployment and hosting approach for the demo;
 - whether STUN alone is sufficient or TURN is required for the intended environment;
 - observability needed to diagnose failures during the demo.
@@ -900,5 +900,5 @@ Only record choices here once the team has agreed to them.
 | Inference location       | Separate stateless Python service                                        | Implemented for hackathon  | Keeps ML dependencies out of the working signalling server                                                                                       |
 | Frame transport          | Per-client local-frame submission                                        | Decided for hackathon      | Each player submits only its own selected local crop                                                                                             |
 | Pairing authority        | Existing Node room service                                               | Implemented for hackathon  | Derives host/guest roles, pairs local crops, and locks/broadcasts the result                                                                     |
-| Final VLM evidence       | Three time-based paired capture slots, with one-to-three complete pairs sent in one request | Implemented for hackathon | Slots are approximately 750 ms apart; incomplete slots are discarded rather than scored independently |
+| Final VLM evidence       | Five time-based paired capture slots, with one-to-five complete pairs sent in one request | Implemented for hackathon | Slots are approximately 750 ms apart; incomplete slots are discarded rather than scored independently |
 | Nice-to-have scope       | TBD                                                                      | Open                       | Decide after core-flow validation                                                                                                                |

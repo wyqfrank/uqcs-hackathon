@@ -103,20 +103,20 @@ def validate_comparison_burst(
             detail="Burst images, sample IDs, and capture timestamps must have equal lengths.",
         )
     count = lengths.pop()
-    if not 1 <= count <= 3:
+    if not 1 <= count <= 5:
         raise HTTPException(
             status_code=422,
-            detail="Comparison requires one to three paired images.",
+            detail="Comparison requires one to five paired images.",
         )
     indexes = burst_index if burst_index is not None else list(range(count))
     if (
         len(indexes) != count
-        or any(index < 0 or index > 2 for index in indexes)
+        or any(index < 0 or index > 4 for index in indexes)
         or indexes != sorted(set(indexes))
     ):
         raise HTTPException(
             status_code=422,
-            detail="Burst indexes must be unique, chronological values from zero to two.",
+            detail="Burst indexes must be unique, chronological values from zero to four.",
         )
     if any(not sample_id or len(sample_id) > 128 for sample_id in (
         *player_a_sample_id,

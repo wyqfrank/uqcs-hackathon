@@ -18,7 +18,7 @@ The API runs at `http://localhost:8000`; its OpenAPI UI is available at
 ## Endpoints
 
 - `GET /health` reports process health and whether a model is ready.
-- `POST /v1/compare` accepts one to three chronological Player A/B image pairs
+- `POST /v1/compare` accepts one to five chronological Player A/B image pairs
   plus battle, finalisation, pair, sample, and capture-time identity as repeated
   multipart fields. It evaluates the burst in one provider request and returns a
   typed final or not-scoreable result.

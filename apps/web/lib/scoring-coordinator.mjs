@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { imageFilename, normaliseImageMimeType } from "./image-upload.mjs";
 
 const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAX_BURST_BYTES = 15 * 1024 * 1024;
@@ -93,7 +94,7 @@ export class ScoringCoordinator {
     createId = randomUUID,
     roundDurationMs = 5000,
     collectionTimeoutMs = 5000,
-    burstOffsetsMs = [0, 750, 1500],
+    burstOffsetsMs = [0, 750, 1500, 2250, 3000],
     // The host machine also runs the inference service, the model on the GPU,
     // the dev server and the tunnel, so its browser needs far longer than an
     // idle laptop to capture, encode and upload a frame. 650 ms was comfortable
@@ -612,11 +613,14 @@ export class ScoringCoordinator {
     }
 
     const image = toBuffer(payload?.image);
-    const mimeType = String(payload?.mimeType || "");
+    const mimeType = normaliseImageMimeType(payload?.mimeType);
     const sampleId = String(payload?.sampleId || "");
     const capturedAtEpochMs = Number(payload?.capturedAtEpochMs);
     if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) {
-      acknowledge({ ok: false, error: "Final frames must be JPEG or WebP." });
+      acknowledge({
+        ok: false,
+        error: "This browser returned an unsupported final-frame format. Retry the score.",
+      });
       return;
     }
     if (!image?.length || image.length > this.maxImageBytes) {
@@ -755,12 +759,12 @@ export class ScoringCoordinator {
       form.append(
         "player_a",
         new Blob([pair.playerA.image], { type: pair.playerA.mimeType }),
-        `player-a-${pair.burstIndex}.webp`,
+        imageFilename(`player-a-${pair.burstIndex}`, pair.playerA.mimeType),
       );
       form.append(
         "player_b",
         new Blob([pair.playerB.image], { type: pair.playerB.mimeType }),
-        `player-b-${pair.burstIndex}.webp`,
+        imageFilename(`player-b-${pair.burstIndex}`, pair.playerB.mimeType),
       );
     }
     state.pairedIdentity = completePairs.map((pair) => ({

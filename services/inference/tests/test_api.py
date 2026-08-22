@@ -196,7 +196,7 @@ def test_compare_returns_typed_final_result_with_identity(monkeypatch) -> None:
     assert payload["winProbability"] is None
 
 
-def test_compare_accepts_three_chronological_pairs_in_one_request(monkeypatch) -> None:
+def test_compare_accepts_five_chronological_pairs_in_one_request(monkeypatch) -> None:
     calls = []
 
     class FakeProvider:
@@ -235,15 +235,15 @@ def test_compare_accepts_three_chronological_pairs_in_one_request(monkeypatch) -
         "battle_id": "FIT-1234",
         "finalisation_id": "final-1",
         "pair_id": "burst-1",
-        "burst_index": ["0", "1", "2"],
-        "player_a_sample_id": ["a-0", "a-1", "a-2"],
-        "player_b_sample_id": ["b-0", "b-1", "b-2"],
-        "player_a_captured_at_ms": ["1000", "1750", "2500"],
-        "player_b_captured_at_ms": ["1005", "1755", "2505"],
+        "burst_index": ["0", "1", "2", "3", "4"],
+        "player_a_sample_id": ["a-0", "a-1", "a-2", "a-3", "a-4"],
+        "player_b_sample_id": ["b-0", "b-1", "b-2", "b-3", "b-4"],
+        "player_a_captured_at_ms": ["1000", "1750", "2500", "3250", "4000"],
+        "player_b_captured_at_ms": ["1005", "1755", "2505", "3255", "4005"],
     }
     files = [
-        *(('player_a', (f"a-{index}.webp", image, "image/webp")) for index in range(3)),
-        *(('player_b', (f"b-{index}.webp", image, "image/webp")) for index in range(3)),
+        *(('player_a', (f"a-{index}.webp", image, "image/webp")) for index in range(5)),
+        *(('player_b', (f"b-{index}.webp", image, "image/webp")) for index in range(5)),
     ]
 
     with TestClient(app) as client:
@@ -252,10 +252,10 @@ def test_compare_accepts_three_chronological_pairs_in_one_request(monkeypatch) -
     assert response.status_code == 200
     payload = response.json()
     assert len(calls) == 1
-    assert len(calls[0]["player_a_images"]) == 3
-    assert payload["playerASampleId"] == "a-2"
-    assert payload["playerBSampleId"] == "b-2"
-    assert [pair["burstIndex"] for pair in payload["samplePairs"]] == [0, 1, 2]
+    assert len(calls[0]["player_a_images"]) == 5
+    assert payload["playerASampleId"] == "a-4"
+    assert payload["playerBSampleId"] == "b-4"
+    assert [pair["burstIndex"] for pair in payload["samplePairs"]] == [0, 1, 2, 3, 4]
 
 
 def test_compare_rejects_mismatched_or_non_chronological_burst() -> None:

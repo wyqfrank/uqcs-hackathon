@@ -246,18 +246,18 @@ test("disconnect cancels a round and reconnect readiness starts a new one", () =
   assert.equal(coordinator.rooms.get("FIT-1234"), second);
 });
 
-test("three requested slots produce one ordered inference request", async () => {
+test("five requested slots produce one ordered inference request", async () => {
   const requests = [];
   const { coordinator, diagnostics, io, host, guest } = setup(async (_url, options) => {
     requests.push(options.body);
     return { ok: true, json: async () => resultFromForm(options.body) };
-  }, { burstOffsetsMs: [0, 5, 10], burstSlotTimeoutMs: 100, collectionTimeoutMs: 150 });
+  }, { burstOffsetsMs: [0, 5, 10, 15, 20], burstSlotTimeoutMs: 100, collectionTimeoutMs: 150 });
   const { state } = await startFinalisation(coordinator, host, guest);
-  await delay(15);
+  await delay(25);
 
   assert.deepEqual(
     io.events.filter(({ name }) => name === "score-frame-request").map(({ payload }) => payload.burstIndex),
-    [0, 1, 2],
+    [0, 1, 2, 3, 4],
   );
   for (const slot of state.slots) {
     coordinator.submitFrame(host, finalFrame(state, slot, "host", `host-${slot.burstIndex}`), () => {});
@@ -267,12 +267,41 @@ test("three requested slots produce one ordered inference request", async () => 
   await flush();
 
   assert.equal(requests.length, 1);
-  assert.deepEqual(requests[0].getAll("burst_index"), ["0", "1", "2"]);
-  assert.deepEqual(requests[0].getAll("player_a_sample_id"), ["host-0", "host-1", "host-2"]);
-  assert.deepEqual(requests[0].getAll("player_b_sample_id"), ["guest-0", "guest-1", "guest-2"]);
+  assert.deepEqual(requests[0].getAll("burst_index"), ["0", "1", "2", "3", "4"]);
+  assert.deepEqual(
+    requests[0].getAll("player_a_sample_id"),
+    ["host-0", "host-1", "host-2", "host-3", "host-4"],
+  );
+  assert.deepEqual(
+    requests[0].getAll("player_b_sample_id"),
+    ["guest-0", "guest-1", "guest-2", "guest-3", "guest-4"],
+  );
   assert.equal(coordinator.rooms.get("FIT-1234").phase, "final");
   assert.equal(diagnostics.some(({ values }) => values[0] === "[scoring] VLM request started"), true);
   assert.equal(diagnostics.some(({ values }) => values[0] === "[scoring] VLM request completed"), true);
+});
+
+test("normalises JPEG aliases and forwards a matching filename", async () => {
+  let submittedForm;
+  const { coordinator, host, guest } = setup(async (_url, options) => {
+    submittedForm = options.body;
+    return { ok: true, json: async () => resultFromForm(options.body) };
+  });
+  const { state } = await startFinalisation(coordinator, host, guest);
+  const [slot] = state.slots;
+  const hostFrame = finalFrame(state, slot, "host", "host-jpeg");
+  hostFrame.mimeType = "IMAGE/JPG; charset=binary";
+  coordinator.submitFrame(host, hostFrame, () => {});
+  coordinator.submitFrame(guest, finalFrame(state, slot, "guest", "guest-webp"), () => {});
+  coordinator.finishBurstCollection("FIT-1234", state);
+  await flush();
+
+  const [playerA] = submittedForm.getAll("player_a");
+  const [playerB] = submittedForm.getAll("player_b");
+  assert.equal(playerA.type, "image/jpeg");
+  assert.equal(playerA.name, "player-a-0.jpg");
+  assert.equal(playerB.type, "image/webp");
+  assert.equal(playerB.name, "player-b-0.webp");
 });
 
 test("the newest submission replaces an earlier frame in the same slot", async () => {

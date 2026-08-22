@@ -46,6 +46,25 @@ describe("final scoring candidate encoding", () => {
     expect(image.close).toHaveBeenCalledOnce();
   });
 
+  it("falls back to JPEG when the browser cannot encode WebP", async () => {
+    const jpeg = new Blob(["jpeg"], { type: "image/jpeg" });
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => ({ drawImage: vi.fn() })),
+      toBlob: vi.fn((callback: (value: Blob | null) => void, type: string) => {
+        callback(type === "image/jpeg" ? jpeg : new Blob(["png"], { type: "image/png" }));
+      }),
+    };
+    vi.stubGlobal("document", { createElement: vi.fn(() => canvas) });
+    const image = { width: 640, height: 480, close: vi.fn() } as unknown as ImageBitmap;
+
+    await expect(encodeAndCloseImageBitmap(image, { format: "image/webp" })).resolves.toBe(jpeg);
+    expect(canvas.toBlob).toHaveBeenNthCalledWith(1, expect.any(Function), "image/webp", 0.82);
+    expect(canvas.toBlob).toHaveBeenNthCalledWith(2, expect.any(Function), "image/jpeg", 0.82);
+    expect(image.close).toHaveBeenCalledOnce();
+  });
+
   it("captures the current video image using the latest normalised outfit crop", async () => {
     const image = { width: 960, height: 864, close: vi.fn() } as unknown as ImageBitmap;
     const createBitmap = vi.fn(async () => image);

@@ -170,9 +170,9 @@ class InferenceEngine:
 
         player_a_images = normalise_comparison_images(player_a)
         player_b_images = normalise_comparison_images(player_b)
-        if not 1 <= len(player_a_images) <= 3 or len(player_a_images) != len(player_b_images):
+        if not 1 <= len(player_a_images) <= 5 or len(player_a_images) != len(player_b_images):
             raise InvalidComparisonImageError(
-                "Comparison requires one to three paired images per player."
+                "Comparison requires one to five paired images per player."
             )
         for image in (*player_a_images, *player_b_images):
             validate_comparison_image(image)

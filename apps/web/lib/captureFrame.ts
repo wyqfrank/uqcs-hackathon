@@ -6,6 +6,16 @@ export type CaptureFrameOptions = {
   format?: "image/jpeg" | "image/webp";
 };
 
+const SUPPORTED_UPLOAD_TYPES = new Set(["image/jpeg", "image/webp"]);
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  format: "image/jpeg" | "image/webp",
+  quality: number,
+): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, format, quality));
+}
+
 export type PixelCrop = {
   x: number;
   y: number;
@@ -80,7 +90,13 @@ export async function encodeImageBitmap(
   const context = canvas.getContext("2d", { alpha: false });
   if (!context) return null;
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve) => canvas.toBlob(resolve, format, quality));
+  const encoded = await canvasToBlob(canvas, format, quality);
+  if (encoded && SUPPORTED_UPLOAD_TYPES.has(encoded.type.toLowerCase())) return encoded;
+  if (format === "image/webp") {
+    const jpeg = await canvasToBlob(canvas, "image/jpeg", quality);
+    if (jpeg && jpeg.type.toLowerCase() === "image/jpeg") return jpeg;
+  }
+  return null;
 }
 
 export async function encodeAndCloseImageBitmap(

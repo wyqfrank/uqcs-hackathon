@@ -1,6 +1,6 @@
 # Scoring model specification
 
-**Status:** The server-authoritative 5-second round and one-to-three-pair final
+**Status:** The server-authoritative 5-second round and one-to-five-pair final
 VLM burst are implemented and covered by automated tests. Real-provider,
 browser-visual, two-device, learned live scoring, training, and representative
 evaluation work remains pending. A labelled bounded demo estimate is implemented
@@ -27,13 +27,13 @@ remain unsettled.
   and both client roles map that result consistently.
 - [x] Both locally score-ready roles start one server-owned 5-second round, with
   early finalisation and disconnect cancellation handled by the coordinator.
-- [x] Finalisation captures three time-spaced slots and sends all available
+- [x] Finalisation captures five time-spaced slots and sends all available
   complete pairs to Gemini in one request.
 - [ ] Live-to-final continuity targets are measured on representative webcam
   battles and the live display is tuned or reduced to the qualitative fallback.
 
-Automated verification on 2026-08-22 passes TypeScript typecheck, 74 web unit
-tests, 26 Node coordinator tests, 63 Python/API tests, Ruff, and the production
+Automated verification on 2026-08-22 passes TypeScript typecheck, 75 web unit
+tests, 27 Node coordinator tests, 63 Python/API tests, Ruff, and the production
 build. The signalling smoke test could not be rerun while the user's existing
 Next dev server held the development lock; its prior passing status is unchanged.
 The credentialed Gemini smoke test is present but skipped by default; visual
@@ -124,10 +124,10 @@ been measured.
 
 When both players become locally score-ready, the server starts a 5-second
 countdown. At zero, or when either player finalises early, stop accepting live
-garment updates and capture three current synchronised slots approximately 750 ms
+garment updates and capture five current synchronised slots approximately 750 ms
 apart using each browser's latest valid outfit crop geometry. A stable buffered
 crop is used only when current-frame capture fails. Enter **Analysing final
-result** with any one-to-three complete pairs and
+result** with any one-to-five complete pairs and
 invoke the most accurate configured scoring path once. For the hackathon, this
 is the paired VLM fallback plus the application-owned deterministic dimension
 combiner unless a validated learned scorer replaces it.
@@ -242,13 +242,13 @@ boundary remains provider-neutral so this decision can be revisited later.
 ```text
 both locally score-ready -> server starts one 5-second round
   -> timer reaches zero or either player finalises early
-  -> server requests paired slots at 0, 750, and 1500 ms
+  -> server requests paired slots at 0, 750, 1500, 2250, and 3000 ms
   -> each browser captures its current local frame with the latest valid crop
      geometry, falling back to its newest stable candidate only if capture fails
   -> coordinator derives identity, keeps the newest submission per role/slot,
      and discards incomplete slots
   -> retain chronological sample identities, assign a burst pair ID, and invoke
-     /v1/compare once with one-to-three complete pairs
+     /v1/compare once with one-to-five complete pairs
   -> inference service revalidates type, size, and decodability
   -> VLM adapter sends rubric, A label/images, then B label/images in one request
   -> strict response is parsed into the internal assessment schema
@@ -259,8 +259,8 @@ both locally score-ready -> server starts one 5-second round
 ```
 
 The VLM fallback runs only on finalisation by default. The implemented final
-burst accepts any one-to-three complete chronological pairs and produces one
-burst-level assessment; it never makes three independent Gemini calls. Periodic
+burst accepts any one-to-five complete chronological pairs and produces one
+burst-level assessment; it never makes five independent Gemini calls. Periodic
 VLM sampling every `2–3 seconds` is an optional fallback experiment, not an MVP
 requirement. If enabled later, a timer tick while a request is active must be
 skipped and never queued.
@@ -423,8 +423,8 @@ service remains stateless.
   transition instead of clamping the final score.
 - [x] Start one server-authoritative 5-second round when both roles are ready,
   allow either player to finalise early, and cancel on disconnect.
-- [x] On finalisation, request three paired slots approximately 750 ms apart and
-  score any one-to-three complete pairs in one Gemini request.
+- [x] On finalisation, request five paired slots approximately 750 ms apart and
+  score any one-to-five complete pairs in one Gemini request.
 - [ ] Consider configurable `2–3 second` VLM polling only as an optional
   fallback experiment after the freeze/final path is reliable.
 

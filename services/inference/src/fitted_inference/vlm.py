@@ -26,7 +26,7 @@ Use cannot_judge if either outfit cannot be assessed fairly. Do not include hidd
 VLM_PROMPTS = {
     "v1": BASE_PROMPT,
     "v2": BASE_PROMPT + """
-You may receive one to three chronological images of each player's unchanged outfit.
+You may receive one to five chronological images of each player's unchanged outfit.
 Use the sequence to reduce sensitivity to a transient pose, blur, or expression. Assess one
 outfit per player across the complete sequence; do not score individual frames separately.
 """,
