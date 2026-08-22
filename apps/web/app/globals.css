@@ -826,29 +826,43 @@ button:focus-visible, input:focus-visible {
   font-size: .85rem;
   letter-spacing: .1em;
 }
-.battle-result .battle-countdown {
-  color: var(--ko);
-  font-family: var(--font-arcade), monospace;
-  font-size: clamp(2rem, 5vw, 3.6rem);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: .08em;
-  -webkit-text-stroke: 0;
-  text-shadow: 3px 3px 0 #000, 0 0 18px rgba(255, 214, 0, .35);
-  transform: none;
-}
+/* Readiness is read from across a room while players frame themselves, so it
+   is the largest thing in the strip. VT323 collapses below ~16px, which is
+   why the old .9rem chips were unreadable at any distance. */
 .round-readiness {
   display: flex;
   justify-content: center;
-  gap: 18px;
-  margin-top: 7px;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
 }
 .round-readiness span {
-  display: inline;
-  color: var(--text-faint);
-  font-size: .9rem;
-  letter-spacing: .12em;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 16px;
+  background: var(--sunken);
+  color: var(--text-dim);
+  font-size: 1.5rem;
+  letter-spacing: .14em;
+  box-shadow: var(--raised-sm);
 }
-.round-readiness span.is-ready { color: var(--p2); }
+.round-readiness span svg { width: 20px; flex: none; }
+/* State is carried by the icon and border as well as colour. */
+.round-readiness span.is-ready {
+  color: var(--p2);
+  box-shadow: inset 2px 2px 0 var(--p2-light), inset -2px -2px 0 var(--p2-dark);
+}
+.round-readiness .is-spinning { animation: spin 1.1s linear infinite; }
+
+/* While framing, the instruction outranks the rest of the strip. */
+.battle-result.is-readiness { padding: 12px 22px 14px; }
+.battle-result.is-readiness > strong {
+  font-size: clamp(1.6rem, 3.4vw, 2.4rem);
+  color: var(--ko);
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Control dock ----------------------------------------------------------- */
 

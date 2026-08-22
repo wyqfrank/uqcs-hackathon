@@ -1,3 +1,4 @@
+import { Check, Loader2 } from "lucide-react";
 import { localPlayerWon, scoresForRole, type BattleScoringState } from "@/lib/scoring";
 import type { RoomRole } from "@/lib/signaling";
 
@@ -12,12 +13,17 @@ export function BattleResult({
     const localReady = role === "host" ? state.playerAReady : state.playerBReady;
     const remoteReady = role === "host" ? state.playerBReady : state.playerAReady;
     return (
-      <div className="battle-result pending">
-        <span>GET READY</span>
+      <div className="battle-result pending is-readiness">
         <strong>FRAME BOTH FITS TO START</strong>
         <div className="round-readiness" aria-label="Battle readiness">
-          <span className={localReady ? "is-ready" : ""}>YOU {localReady ? "READY" : "FRAMING"}</span>
-          <span className={remoteReady ? "is-ready" : ""}>THEM {remoteReady ? "READY" : "FRAMING"}</span>
+          {([["YOU", localReady], ["THEM", remoteReady]] as const).map(([who, ready]) => (
+            <span key={who} className={ready ? "is-ready" : ""}>
+              {ready
+                ? <Check aria-hidden="true" strokeWidth={3} />
+                : <Loader2 aria-hidden="true" strokeWidth={3} className="is-spinning" />}
+              {who} {ready ? "READY" : "FRAMING"}
+            </span>
+          ))}
         </div>
       </div>
     );
@@ -25,10 +31,9 @@ export function BattleResult({
   if (state.phase === "countdown") {
     const seconds = String(state.secondsRemaining).padStart(2, "0");
     return (
-      <div className="battle-result pending countdown-result" aria-live="polite">
+      <div className="battle-result pending" aria-hidden="true">
         <span>ROUND LIVE</span>
-        <strong className="battle-countdown">00:{seconds}</strong>
-        <p>Live estimates update on the feeds. Final analysis begins automatically.</p>
+        <strong>STARTING IN 00:{seconds}</strong>
       </div>
     );
   }
