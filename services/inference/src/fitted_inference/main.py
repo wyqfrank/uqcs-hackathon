@@ -9,6 +9,7 @@ from .config import get_settings
 from .engine import (
     ComparisonContext,
     ComparisonImage,
+    ComparisonSamplePair,
     InferenceEngine,
     InferenceTimeoutError,
     InferenceUnavailableError,
@@ -77,6 +78,50 @@ async def read_image(upload: UploadFile) -> bytes:
     if len(contents) > settings.max_image_bytes:
         raise HTTPException(status_code=413, detail="Image exceeds the configured size limit.")
     return contents
+
+
+def validate_comparison_burst(
+    player_a: list[UploadFile],
+    player_b: list[UploadFile],
+    player_a_sample_id: list[str],
+    player_b_sample_id: list[str],
+    player_a_captured_at_ms: list[float],
+    player_b_captured_at_ms: list[float],
+) -> int:
+    lengths = {
+        len(player_a),
+        len(player_b),
+        len(player_a_sample_id),
+        len(player_b_sample_id),
+        len(player_a_captured_at_ms),
+        len(player_b_captured_at_ms),
+    }
+    if len(lengths) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="Burst images, sample IDs, and capture timestamps must have equal lengths.",
+        )
+    count = lengths.pop()
+    if not 1 <= count <= 3:
+        raise HTTPException(
+            status_code=422,
+            detail="Comparison requires one to three paired images.",
+        )
+    if any(not sample_id or len(sample_id) > 128 for sample_id in (
+        *player_a_sample_id,
+        *player_b_sample_id,
+    )):
+        raise HTTPException(status_code=422, detail="Sample IDs are invalid.")
+    for timestamps in (player_a_captured_at_ms, player_b_captured_at_ms):
+        if any(
+            current < previous
+            for previous, current in zip(timestamps, timestamps[1:], strict=False)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Burst capture timestamps must be chronological.",
+            )
+    return count
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -149,28 +194,60 @@ async def compare(
     battle_id: Annotated[str, Form(min_length=1, max_length=64)],
     finalisation_id: Annotated[str, Form(min_length=1, max_length=128)],
     pair_id: Annotated[str, Form(min_length=1, max_length=128)],
-    player_a_sample_id: Annotated[str, Form(min_length=1, max_length=128)],
-    player_b_sample_id: Annotated[str, Form(min_length=1, max_length=128)],
-    player_a_captured_at_ms: Annotated[float, Form(ge=0)],
-    player_b_captured_at_ms: Annotated[float, Form(ge=0)],
-    player_a: Annotated[UploadFile, File(description="Latest frame for player A")],
-    player_b: Annotated[UploadFile, File(description="Latest frame for player B")],
+    player_a_sample_id: Annotated[list[str], Form()],
+    player_b_sample_id: Annotated[list[str], Form()],
+    player_a_captured_at_ms: Annotated[list[float], Form()],
+    player_b_captured_at_ms: Annotated[list[float], Form()],
+    player_a: Annotated[list[UploadFile], File(description="Chronological frames for player A")],
+    player_b: Annotated[list[UploadFile], File(description="Chronological frames for player B")],
 ) -> ComparisonResponse:
-    images = await read_image(player_a), await read_image(player_b)
+    count = validate_comparison_burst(
+        player_a,
+        player_b,
+        player_a_sample_id,
+        player_b_sample_id,
+        player_a_captured_at_ms,
+        player_b_captured_at_ms,
+    )
+    player_a_bytes = [await read_image(upload) for upload in player_a]
+    player_b_bytes = [await read_image(upload) for upload in player_b]
+    if sum(map(len, (*player_a_bytes, *player_b_bytes))) > settings.max_burst_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail="Image burst exceeds the configured size limit.",
+        )
+    latest = count - 1
+    sample_pairs = tuple(
+        ComparisonSamplePair(
+            burst_index=index,
+            player_a_sample_id=player_a_sample_id[index],
+            player_b_sample_id=player_b_sample_id[index],
+            player_a_captured_at_ms=player_a_captured_at_ms[index],
+            player_b_captured_at_ms=player_b_captured_at_ms[index],
+        )
+        for index in range(count)
+    )
     context = ComparisonContext(
         battle_id=battle_id,
         finalisation_id=finalisation_id,
         pair_id=pair_id,
-        player_a_sample_id=player_a_sample_id,
-        player_b_sample_id=player_b_sample_id,
-        player_a_captured_at_ms=player_a_captured_at_ms,
-        player_b_captured_at_ms=player_b_captured_at_ms,
+        player_a_sample_id=player_a_sample_id[latest],
+        player_b_sample_id=player_b_sample_id[latest],
+        player_a_captured_at_ms=player_a_captured_at_ms[latest],
+        player_b_captured_at_ms=player_b_captured_at_ms[latest],
+        sample_pairs=sample_pairs,
     )
     try:
         return await get_engine(request).compare(
             context,
-            ComparisonImage(images[0], player_a.content_type or ""),
-            ComparisonImage(images[1], player_b.content_type or ""),
+            [
+                ComparisonImage(contents, upload.content_type or "")
+                for contents, upload in zip(player_a_bytes, player_a, strict=True)
+            ],
+            [
+                ComparisonImage(contents, upload.content_type or "")
+                for contents, upload in zip(player_b_bytes, player_b, strict=True)
+            ],
         )
     except ModelNotReadyError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error

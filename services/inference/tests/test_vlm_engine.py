@@ -77,11 +77,13 @@ class FakeProvider:
     def __init__(self, result: VlmAssessment) -> None:
         self.result = result
         self.calls = 0
+        self.last_kwargs = None
 
     async def assess(self, **kwargs) -> VlmAssessment:
-        assert kwargs["player_a_mime_type"] == "image/webp"
-        assert kwargs["player_b_mime_type"] == "image/webp"
+        assert all(mime_type == "image/webp" for _, mime_type in kwargs["player_a_images"])
+        assert all(mime_type == "image/webp" for _, mime_type in kwargs["player_b_images"])
         self.calls += 1
+        self.last_kwargs = kwargs
         return self.result
 
 
@@ -101,6 +103,35 @@ async def test_engine_builds_deterministic_final_score_without_holistic_double_c
     assert result.breakdown.player_a.vlm_holistic == 99
     assert result.model_version == "fake-vlm"
     assert result.finalisation_id == "final-1"
+    assert result.sample_pairs[0].player_a_sample_id == "sample-a"
+
+
+@pytest.mark.anyio
+async def test_engine_sends_three_chronological_pairs_in_one_provider_call() -> None:
+    provider = FakeProvider(assessment())
+    engine = InferenceEngine(provider=provider)
+    images = [ComparisonImage(image_bytes(), "image/webp") for _ in range(3)]
+
+    result = await engine.compare(context(), images, images)
+
+    assert result.phase == "final"
+    assert provider.calls == 1
+    assert len(provider.last_kwargs["player_a_images"]) == 3
+    assert len(provider.last_kwargs["player_b_images"]) == 3
+
+
+@pytest.mark.anyio
+async def test_engine_rejects_unpaired_or_oversized_bursts_before_provider() -> None:
+    provider = FakeProvider(assessment())
+    engine = InferenceEngine(provider=provider)
+    image = ComparisonImage(image_bytes(), "image/webp")
+
+    with pytest.raises(InvalidComparisonImageError, match="one to three paired"):
+        await engine.compare(context(), [image, image], [image])
+    with pytest.raises(InvalidComparisonImageError, match="one to three paired"):
+        await engine.compare(context(), [image] * 4, [image] * 4)
+
+    assert provider.calls == 0
 
 
 @pytest.mark.anyio
@@ -309,19 +340,25 @@ async def test_gemini_adapter_labels_inline_images_and_requests_strict_schema() 
     provider._timeout_seconds = 12
 
     result = await provider.assess(
-        player_a=b"image-a",
-        player_a_mime_type="image/webp",
-        player_b=b"image-b",
-        player_b_mime_type="image/jpeg",
+        player_a_images=[(b"image-a-1", "image/webp"), (b"image-a-2", "image/jpeg")],
+        player_b_images=[(b"image-b-1", "image/jpeg"), (b"image-b-2", "image/webp")],
     )
 
     assert result.pair.preference == "player_a"
     request = calls[0]
-    assert request["input"][0] == {"type": "text", "text": "Player A"}
-    assert base64.b64decode(request["input"][1]["data"]) == b"image-a"
+    assert request["input"][0] == {
+        "type": "text",
+        "text": "Player A chronological sequence (2 image(s))",
+    }
+    assert base64.b64decode(request["input"][1]["data"]) == b"image-a-1"
+    assert base64.b64decode(request["input"][2]["data"]) == b"image-a-2"
     assert request["input"][1]["resolution"] == "high"
-    assert request["input"][2] == {"type": "text", "text": "Player B"}
-    assert base64.b64decode(request["input"][3]["data"]) == b"image-b"
+    assert request["input"][3] == {
+        "type": "text",
+        "text": "Player B chronological sequence (2 image(s))",
+    }
+    assert base64.b64decode(request["input"][4]["data"]) == b"image-b-1"
+    assert base64.b64decode(request["input"][5]["data"]) == b"image-b-2"
     assert request["response_format"]["mime_type"] == "application/json"
     assert request["store"] is False
     assert "faces" in request["system_instruction"]

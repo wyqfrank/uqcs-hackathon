@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .config import Settings
@@ -51,6 +52,24 @@ class InferenceUnavailableError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class ComparisonSamplePair:
+    burst_index: int
+    player_a_sample_id: str
+    player_b_sample_id: str
+    player_a_captured_at_ms: float
+    player_b_captured_at_ms: float
+
+    def response_fields(self) -> dict[str, str | float | int]:
+        return {
+            "burst_index": self.burst_index,
+            "player_a_sample_id": self.player_a_sample_id,
+            "player_b_sample_id": self.player_b_sample_id,
+            "player_a_captured_at_ms": self.player_a_captured_at_ms,
+            "player_b_captured_at_ms": self.player_b_captured_at_ms,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ComparisonContext:
     battle_id: str
     finalisation_id: str
@@ -59,8 +78,18 @@ class ComparisonContext:
     player_b_sample_id: str
     player_a_captured_at_ms: float
     player_b_captured_at_ms: float
+    sample_pairs: tuple[ComparisonSamplePair, ...] = ()
 
-    def response_fields(self) -> dict[str, str | float]:
+    def response_fields(self) -> dict[str, object]:
+        sample_pairs = self.sample_pairs or (
+            ComparisonSamplePair(
+                burst_index=0,
+                player_a_sample_id=self.player_a_sample_id,
+                player_b_sample_id=self.player_b_sample_id,
+                player_a_captured_at_ms=self.player_a_captured_at_ms,
+                player_b_captured_at_ms=self.player_b_captured_at_ms,
+            ),
+        )
         return {
             "battle_id": self.battle_id,
             "finalisation_id": self.finalisation_id,
@@ -69,6 +98,7 @@ class ComparisonContext:
             "player_b_sample_id": self.player_b_sample_id,
             "player_a_captured_at_ms": self.player_a_captured_at_ms,
             "player_b_captured_at_ms": self.player_b_captured_at_ms,
+            "sample_pairs": [sample.response_fields() for sample in sample_pairs],
         }
 
 
@@ -105,6 +135,14 @@ def validate_comparison_image(image: ComparisonImage) -> None:
         raise InvalidComparisonImageError("Image MIME type does not match its content.")
 
 
+def normalise_comparison_images(
+    images: ComparisonImage | Sequence[ComparisonImage],
+) -> tuple[ComparisonImage, ...]:
+    if isinstance(images, ComparisonImage):
+        return (images,)
+    return tuple(images)
+
+
 @dataclass(slots=True)
 class InferenceEngine:
     provider: VlmProvider | None = None
@@ -121,8 +159,8 @@ class InferenceEngine:
     async def compare(
         self,
         context: ComparisonContext,
-        player_a: ComparisonImage,
-        player_b: ComparisonImage,
+        player_a: ComparisonImage | Sequence[ComparisonImage],
+        player_b: ComparisonImage | Sequence[ComparisonImage],
     ) -> ComparisonResponse:
         if not self.provider:
             raise ModelNotReadyError(
@@ -130,11 +168,17 @@ class InferenceEngine:
                 "FITTED_SCORING_BACKEND=vlm_fallback."
             )
 
-        validate_comparison_image(player_a)
-        validate_comparison_image(player_b)
+        player_a_images = normalise_comparison_images(player_a)
+        player_b_images = normalise_comparison_images(player_b)
+        if not 1 <= len(player_a_images) <= 3 or len(player_a_images) != len(player_b_images):
+            raise InvalidComparisonImageError(
+                "Comparison requires one to three paired images per player."
+            )
+        for image in (*player_a_images, *player_b_images):
+            validate_comparison_image(image)
         started_at = time.perf_counter()
         try:
-            assessment = await self._assess_with_retry(player_a, player_b)
+            assessment = await self._assess_with_retry(player_a_images, player_b_images)
         except VlmProviderRefusalError:
             return self._provider_not_scoreable(
                 context,
@@ -154,17 +198,19 @@ class InferenceEngine:
 
     async def _assess_with_retry(
         self,
-        player_a: ComparisonImage,
-        player_b: ComparisonImage,
+        player_a: Sequence[ComparisonImage],
+        player_b: Sequence[ComparisonImage],
     ) -> VlmAssessment:
         assert self.provider is not None
         for attempt in range(2):
             try:
                 return await self.provider.assess(
-                    player_a=player_a.contents,
-                    player_a_mime_type=player_a.mime_type,
-                    player_b=player_b.contents,
-                    player_b_mime_type=player_b.mime_type,
+                    player_a_images=[
+                        (image.contents, image.mime_type) for image in player_a
+                    ],
+                    player_b_images=[
+                        (image.contents, image.mime_type) for image in player_b
+                    ],
                 )
             except VlmProviderRetryableError as error:
                 if attempt == 1:

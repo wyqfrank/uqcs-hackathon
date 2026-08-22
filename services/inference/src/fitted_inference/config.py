@@ -22,6 +22,7 @@ class Settings:
     garment_local_files_only: bool
     cors_origins: tuple[str, ...]
     max_image_bytes: int
+    max_burst_bytes: int
 
 
 @lru_cache
@@ -35,7 +36,7 @@ def get_settings() -> Settings:
         vlm_model=os.getenv("FITTED_VLM_MODEL", "gemini-3.6-flash"),
         vlm_media_resolution=os.getenv("FITTED_VLM_MEDIA_RESOLUTION", "high"),
         vlm_timeout_seconds=float(os.getenv("FITTED_VLM_TIMEOUT_SECONDS", "12")),
-        vlm_prompt_version=os.getenv("FITTED_VLM_PROMPT_VERSION", "v1"),
+        vlm_prompt_version=os.getenv("FITTED_VLM_PROMPT_VERSION", "v2"),
         garment_backend=os.getenv("FITTED_GARMENT_BACKEND") or None,
         garment_checkpoint_path=os.getenv("FITTED_GARMENT_CHECKPOINT_PATH") or None,
         garment_model_id=os.getenv("FITTED_GARMENT_MODEL_ID") or None,
@@ -48,4 +49,7 @@ def get_settings() -> Settings:
         in {"1", "true", "yes"},
         cors_origins=tuple(origin.strip() for origin in origins.split(",") if origin.strip()),
         max_image_bytes=int(os.getenv("FITTED_MAX_IMAGE_BYTES", str(5 * 1024 * 1024))),
+        max_burst_bytes=int(
+            os.getenv("FITTED_MAX_BURST_BYTES", str(15 * 1024 * 1024))
+        ),
     )

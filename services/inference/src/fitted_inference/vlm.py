@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Sequence
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-VLM_PROMPTS = {"v1": """You are the final outfit-comparison assessor for FITTED.
+BASE_PROMPT = """You are the final outfit-comparison assessor for FITTED.
 Judge only visible clothing and styling. Assess both labelled players with the same rubric.
 
 Score these dimensions from 0 to 100:
@@ -20,7 +21,18 @@ Do not assess faces, attractiveness, body type, perceived gender, wealth, brand 
 popularity, or background. Use image quality only to decide whether clothing can be judged.
 Never invent hidden garment details. Keep observations short and grounded in visible clothing.
 Use cannot_judge if either outfit cannot be assessed fairly. Do not include hidden reasoning.
-"""}
+"""
+
+VLM_PROMPTS = {
+    "v1": BASE_PROMPT,
+    "v2": BASE_PROMPT + """
+You may receive one to three chronological images of each player's unchanged outfit.
+Use the sequence to reduce sensitivity to a transient pose, blur, or expression. Assess one
+outfit per player across the complete sequence; do not score individual frames separately.
+""",
+}
+
+VlmImage = tuple[bytes, str]
 
 
 class VlmPlayerAssessment(BaseModel):
@@ -91,10 +103,8 @@ class VlmProvider(Protocol):
     async def assess(
         self,
         *,
-        player_a: bytes,
-        player_a_mime_type: str,
-        player_b: bytes,
-        player_b_mime_type: str,
+        player_a_images: Sequence[VlmImage],
+        player_b_images: Sequence[VlmImage],
     ) -> VlmAssessment: ...
 
 
@@ -131,32 +141,50 @@ class GeminiVlmProvider:
     async def assess(
         self,
         *,
-        player_a: bytes,
-        player_a_mime_type: str,
-        player_b: bytes,
-        player_b_mime_type: str,
+        player_a_images: Sequence[VlmImage],
+        player_b_images: Sequence[VlmImage],
     ) -> VlmAssessment:
+        input_items: list[dict[str, str]] = [
+            {
+                "type": "text",
+                "text": f"Player A chronological sequence ({len(player_a_images)} image(s))",
+            }
+        ]
+        input_items.extend(
+            {
+                "type": "image",
+                "data": base64.b64encode(contents).decode("ascii"),
+                "mime_type": mime_type,
+                "resolution": self._media_resolution,
+            }
+            for contents, mime_type in player_a_images
+        )
+        input_items.append(
+            {
+                "type": "text",
+                "text": f"Player B chronological sequence ({len(player_b_images)} image(s))",
+            }
+        )
+        input_items.extend(
+            {
+                "type": "image",
+                "data": base64.b64encode(contents).decode("ascii"),
+                "mime_type": mime_type,
+                "resolution": self._media_resolution,
+            }
+            for contents, mime_type in player_b_images
+        )
+        input_items.append(
+            {
+                "type": "text",
+                "text": "Assess the two labelled outfit sequences using the rubric.",
+            }
+        )
         try:
             interaction = await self._client.aio.interactions.create(
                 model=self.model_version,
                 system_instruction=self._prompt,
-                input=[
-                    {"type": "text", "text": "Player A"},
-                    {
-                        "type": "image",
-                        "data": base64.b64encode(player_a).decode("ascii"),
-                        "mime_type": player_a_mime_type,
-                        "resolution": self._media_resolution,
-                    },
-                    {"type": "text", "text": "Player B"},
-                    {
-                        "type": "image",
-                        "data": base64.b64encode(player_b).decode("ascii"),
-                        "mime_type": player_b_mime_type,
-                        "resolution": self._media_resolution,
-                    },
-                    {"type": "text", "text": "Assess this labelled pair using the rubric."},
-                ],
+                input=input_items,
                 response_format={
                     "type": "text",
                     "mime_type": "application/json",
