@@ -514,7 +514,12 @@ button:focus-visible, input:focus-visible {
 
 /* Player panels ---------------------------------------------------------- */
 
-.player-card { min-width: 0; display: flex; flex-direction: column; --side: var(--bevel-light); --side-light: var(--bevel-light); --side-dark: var(--bevel-dark); }
+/* min-height:0 is load-bearing. A grid item defaults to min-height:auto, so
+   the card refuses to shrink below its content — and once a real stream is
+   attached the <video> contributes its intrinsic height (1080px), blowing the
+   row past the viewport. Only visible with a live feed, which is why it
+   survived every static screenshot. */
+.player-card { min-width: 0; min-height: 0; display: flex; flex-direction: column; --side: var(--bevel-light); --side-light: var(--bevel-light); --side-dark: var(--bevel-dark); }
 .player-card.is-p1 { --side: var(--p1); --side-light: var(--p1-light); --side-dark: var(--p1-dark); }
 .player-card.is-p2 { --side: var(--p2); --side-light: var(--p2-light); --side-dark: var(--p2-dark); }
 
@@ -1518,3 +1523,46 @@ kbd {
   .result-row { font-size: 1.05rem; padding: 6px 10px; gap: 8px; }
   .result-explanation { font-size: 1.1rem; }
 }
+
+/* Dev-only UI preview switcher (/preview). Not present in production builds. */
+/* The preview column owns the viewport and hands the battle screen whatever
+   the switcher does not use. Overriding .battle-shell's own 100vh with a calc
+   double-counted the bar's height and blew the video grid out past the fold. */
+.preview-root { height: 100vh; display: flex; flex-direction: column; }
+.preview-root .battle-shell { height: auto; flex: 1; min-height: 0; }
+
+.preview-bar {
+  flex: none;
+  z-index: 40;
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 10px;
+  background: rgba(11, 11, 11, .94);
+  border-bottom: 2px solid var(--ko-dark);
+}
+.preview-bar button { flex: none; white-space: nowrap; }
+.preview-bar b {
+  font-family: var(--font-arcade), monospace;
+  font-size: 1.05rem;
+  letter-spacing: .24em;
+  color: var(--ko);
+  margin-right: 6px;
+}
+.preview-bar button {
+  padding: 4px 10px;
+  border: 0;
+  cursor: pointer;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-family: var(--font-arcade), monospace;
+  font-size: 1rem;
+  letter-spacing: .08em;
+}
+.preview-bar button:hover { color: #fff; background: var(--panel-3); }
+.preview-bar button.is-active { background: var(--ko); color: var(--ink); }
+/* Push the battle screen clear of the fixed switcher. */
+
