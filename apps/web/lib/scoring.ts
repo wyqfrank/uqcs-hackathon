@@ -70,6 +70,8 @@ export type BattleScoringState =
       playerAReady: boolean;
       playerBReady: boolean;
     }
+  /** Lead-in: both clients count down together before scoring opens. */
+  | { phase: "starting"; roundId: string; secondsRemaining: number }
   | { phase: "countdown"; roundId: string; secondsRemaining: number }
   | { phase: "collecting"; finalisationId: string }
   | { phase: "analysing"; finalisationId: string }

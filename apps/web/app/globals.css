@@ -514,7 +514,12 @@ button:focus-visible, input:focus-visible {
 
 /* Player panels ---------------------------------------------------------- */
 
-.player-card { min-width: 0; display: flex; flex-direction: column; --side: var(--bevel-light); --side-light: var(--bevel-light); --side-dark: var(--bevel-dark); }
+/* min-height:0 is load-bearing. A grid item defaults to min-height:auto, so
+   the card refuses to shrink below its content — and once a real stream is
+   attached the <video> contributes its intrinsic height (1080px), blowing the
+   row past the viewport. Only visible with a live feed, which is why it
+   survived every static screenshot. */
+.player-card { min-width: 0; min-height: 0; display: flex; flex-direction: column; --side: var(--bevel-light); --side-light: var(--bevel-light); --side-dark: var(--bevel-dark); }
 .player-card.is-p1 { --side: var(--p1); --side-light: var(--p1-light); --side-dark: var(--p1-dark); }
 .player-card.is-p2 { --side: var(--p2); --side-light: var(--p2-light); --side-dark: var(--p2-dark); }
 
@@ -1368,11 +1373,10 @@ kbd {
   place-items: center;
   padding: 24px;
   animation: overlay-in .18s ease-out;
+  /* The battle is over here, so the verdict takes the screen. */
+  background: rgba(11, 11, 11, .88);
+  backdrop-filter: blur(6px);
 }
-/* Countdown: players are still framing, so keep the feeds readable. */
-.battle-overlay.is-light { background: rgba(11, 11, 11, .45); backdrop-filter: blur(2px); }
-/* Result: the battle is over, so the verdict takes the screen. */
-.battle-overlay.is-heavy { background: rgba(11, 11, 11, .88); backdrop-filter: blur(6px); }
 
 .battle-overlay-panel {
   position: relative;
@@ -1385,40 +1389,30 @@ kbd {
   max-height: 92vh;
   overflow-y: auto;
 }
-.is-heavy .battle-overlay-panel {
+.battle-overlay-panel.is-panel, .battle-overlay-panel {
   padding: 34px 34px 26px;
   background: var(--panel);
   box-shadow: var(--raised), var(--drop);
 }
 
-/* --- Countdown ---------------------------------------------------------- */
+/* --- Round lead-in ------------------------------------------------------- */
 
-.countdown-eyebrow,
-.result-eyebrow {
-  font-family: var(--font-arcade), monospace;
-  font-size: 1.25rem;
-  letter-spacing: .28em;
-  text-transform: uppercase;
-  color: var(--ko);
-}
-/* Arcade face, not the graffiti one: numerals in the display face are too
-   abstract to read at a glance — the same reason the score uses VT323. */
 .countdown-number {
   display: block;
   font-family: var(--font-arcade), monospace;
-  font-size: clamp(8rem, 30vw, 20rem);
-  line-height: .82;
+  font-size: clamp(7rem, 26vw, 16rem);
+  line-height: .86;
   color: #fff;
-  text-shadow: 8px 8px 0 #000, 0 0 60px rgba(255, 106, 0, .35);
   transform: skewX(var(--skew));
+  text-shadow: 8px 8px 0 #000, 0 0 60px rgba(255, 106, 0, .4);
   /* steps() so it ticks like a cabinet rather than easing like a web page. */
-  animation: countdown-pop .34s steps(5, end);
+  animation: countdown-pop .3s steps(4, end);
 }
 .countdown-hint {
   margin: 0;
   font-family: var(--font-arcade), monospace;
-  font-size: 1.3rem;
-  letter-spacing: .18em;
+  font-size: 1.35rem;
+  letter-spacing: .2em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
@@ -1514,7 +1508,52 @@ kbd {
 }
 
 @media (max-width: 620px) {
-  .is-heavy .battle-overlay-panel { padding: 22px 18px 20px; }
+  .battle-overlay-panel.is-panel, .battle-overlay-panel { padding: 22px 18px 20px; }
   .result-row { font-size: 1.05rem; padding: 6px 10px; gap: 8px; }
   .result-explanation { font-size: 1.1rem; }
 }
+
+/* Dev-only UI preview switcher (/preview). Not present in production builds. */
+/* The preview column owns the viewport and hands the battle screen whatever
+   the switcher does not use. Overriding .battle-shell's own 100vh with a calc
+   double-counted the bar's height and blew the video grid out past the fold. */
+.preview-root { height: 100vh; display: flex; flex-direction: column; }
+.preview-root .battle-shell { height: auto; flex: 1; min-height: 0; }
+
+.preview-bar {
+  flex: none;
+  z-index: 40;
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 10px;
+  background: rgba(11, 11, 11, .94);
+  border-bottom: 2px solid var(--ko-dark);
+}
+.preview-bar button { flex: none; white-space: nowrap; }
+.preview-bar b {
+  font-family: var(--font-arcade), monospace;
+  font-size: 1.05rem;
+  letter-spacing: .24em;
+  color: var(--ko);
+  margin-right: 6px;
+}
+.preview-bar button {
+  padding: 4px 10px;
+  border: 0;
+  cursor: pointer;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-family: var(--font-arcade), monospace;
+  font-size: 1rem;
+  letter-spacing: .08em;
+}
+.preview-bar button:hover { color: #fff; background: var(--panel-3); }
+.preview-bar button.is-active { background: var(--ko); color: var(--ink); }
+/* Push the battle screen clear of the fixed switcher. */
+
+.preview-bar .preview-play { margin-left: auto; background: var(--p2-dark); color: #fff; }
+.preview-bar .preview-play.is-active { background: var(--p2); color: var(--ink); }

@@ -2,27 +2,15 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, CameraOff, Copy, LogOut, RotateCcw, Snowflake } from "lucide-react";
 import { useBattleScoring } from "@/hooks/useBattleScoring";
 import { useCamera } from "@/hooks/useCamera";
 import { useGarmentPerception } from "@/hooks/useGarmentPerception";
 import { useOutfitDetection } from "@/hooks/useOutfitDetection";
-import { useWebRTC, type ConnectionState } from "@/hooks/useWebRTC";
+import { useWebRTC } from "@/hooks/useWebRTC";
+import { BattleStage } from "./BattleStage";
 import { CV_CONFIG } from "@/lib/cv/config";
 import { scoresForRole } from "@/lib/scoring";
 import type { RoomRole } from "@/lib/signaling";
-import { BattleResult } from "./BattleResult";
-import { CountdownOverlay } from "./CountdownOverlay";
-import { ResultOverlay } from "./ResultOverlay";
-import { ConnectionStatus } from "./ConnectionStatus";
-import { PlayerCard } from "./PlayerCard";
-import { Button } from "./ui/button";
-
-function connectionErrorTitle(state: ConnectionState): string {
-  if (state === "failed") return "NO VIDEO ROUTE";
-  if (state === "error") return "NO BATTLE FOUND";
-  return "SIGNAL LOST";
-}
 
 export function BattleRoom({
   roomId,
@@ -89,6 +77,17 @@ export function BattleRoom({
     && !scoring.isLocked
     && ["countdown", "not_scoreable"].includes(scoring.state.phase);
 
+  const remoteWaitingText =
+    rtc.connectionState === "connected"
+      ? "OPPONENT CAMERA OFF"
+      : rtc.connectionState === "connecting"
+        ? "CONNECTING"
+        : rtc.connectionState === "searching"
+          ? `LOOKING FOR ${roomId}`
+          : rtc.connectionState === "error"
+            ? "NO BATTLE FOUND"
+            : "WAITING FOR OPPONENT";
+
   const copyRoomCode = async () => {
     await navigator.clipboard.writeText(roomId);
     setCopied(true);
@@ -101,145 +100,50 @@ export function BattleRoom({
   };
 
   return (
-    <main className="battle-shell">
-      <div className="battle-grid" />
-      <nav className="battle-nav">
-        <Button variant="bare" size="bare" className="wordmark wordmark-button" onClick={leave}>FITTED<span>®</span></Button>
-        <ConnectionStatus
-          connection={rtc.connectionState}
-          camera={camera.status}
-          candidateTypes={rtc.candidateTypes}
-          route={rtc.route}
-        />
-        <Button variant="bare" size="bare" className="room-code" onClick={copyRoomCode} aria-label={`Copy room code ${roomId}`}>
-          <span>ROOM</span><b>{copied ? "COPIED!" : roomId}</b><Copy aria-hidden="true" />
-        </Button>
-      </nav>
-
-      {/* Camera and connection can fail independently, so neither hides the other. */}
-      {(camera.error || rtc.error || scoreError) && (
-        <div className="error-stack">
-          {camera.error && (
-            <div className="error-banner">
-              <b>CAMERA UNAVAILABLE</b>
-              <span>{camera.error}</span>
-            </div>
-          )}
-          {rtc.error && (
-            <div className="error-banner">
-              <b>{connectionErrorTitle(rtc.connectionState)}</b>
-              <span>{rtc.error}</span>
-              {rtc.connectionState !== "error" && (
-                <a href="/diagnostics" target="_blank" rel="noreferrer">RUN NETWORK CHECK</a>
-              )}
-            </div>
-          )}
-          {scoreError && (
-            <div className="error-banner">
-              <b>FINAL RESULT UNAVAILABLE</b>
-              <span>{scoreError}</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      <section className="arena">
-        <div className="arena-heading">
-          <span>LIVE / HEAD TO HEAD</span>
-          <h1>YOU <i>VS</i> THEM</h1>
-          <span>{role === "host" ? "PLAYER 01 / HOST" : "PLAYER 02 / CHALLENGER"}</span>
-        </div>
-
-        <div className="players">
-          <PlayerCard
-            label="YOU" number={role === "host" ? "01" : "02"} side="p1"
-            stream={camera.stream} videoRef={localVideoRef} muted
-            score={localScore} analysing={scoring.isBusy}
-            provisionalScore={scoresAreProvisional}
-            waitingText={camera.status === "requesting" ? "OPENING CAMERA" : "CAMERA OFF"}
-            detection={{ state: outfitDetection.detectorState, result: outfitDetection.result }}
-            garmentCategories={garmentPerception.localCategories}
-            garmentOverlay={showGarmentOverlays ? garmentPerception.localOverlay : null}
-          />
-          <div className="versus-mark"><span>V</span><span>S</span></div>
-          <PlayerCard
-            label="THEM" number={role === "host" ? "02" : "01"} side="p2"
-            stream={rtc.remoteStream} videoRef={remoteVideoRef} muted={false}
-            score={remoteScore} analysing={scoring.isBusy}
-            provisionalScore={scoresAreProvisional}
-            waitingText={
-              rtc.connectionState === "connected"
-                ? "OPPONENT CAMERA OFF"
-                : rtc.connectionState === "connecting"
-                  ? "CONNECTING"
-                  : rtc.connectionState === "searching"
-                    ? `LOOKING FOR ${roomId}`
-                    : rtc.connectionState === "error"
-                      ? "NO BATTLE FOUND"
-                      : "WAITING FOR OPPONENT"
-            }
-            garmentCategories={garmentPerception.remoteCategories}
-            garmentOverlay={showGarmentOverlays ? garmentPerception.remoteOverlay : null}
-          />
-        </div>
-
-        <BattleResult state={scoring.state} role={role} />
-      </section>
-
-      {scoring.state.phase === "countdown" && (
-        <CountdownOverlay secondsRemaining={scoring.state.secondsRemaining} />
-      )}
-
-      {scoring.state.phase === "final" && dismissedResultId !== scoring.state.result.finalisationId && (
-        <ResultOverlay
-          result={scoring.state.result}
-          role={role}
-          onDismiss={() => setDismissedResultId(scoring.state.phase === "final" ? scoring.state.result.finalisationId : null)}
-        />
-      )}
-
-      <div className="control-dock">
-        <Button variant="bare" size="bare" aria-label={camera.stream ? "Stop camera" : "Start camera"} className="primary-control" onClick={camera.stream ? camera.stopCamera : () => void camera.startCamera()}>
-          {camera.stream ? <CameraOff aria-hidden="true" /> : <Camera aria-hidden="true" />}<span>{camera.stream ? "STOP CAMERA" : "START CAMERA"}</span>
-        </Button>
-        <Button
-          variant="bare"
-          size="bare"
-          aria-label={scoring.isLocked ? "Final score locked" : "Finalise score"}
-          className={scoring.isBusy || scoring.isLocked ? "is-active" : ""}
-          disabled={!canFinalise}
-          onClick={scoring.finalise}
-        >
-          <Snowflake aria-hidden="true" />
-          <span>
-            {scoring.state.phase === "collecting"
-              ? "CAPTURING FITS"
-              : scoring.state.phase === "analysing"
-                ? "ANALYSING"
-                : scoring.state.phase === "final"
-                  ? "SCORE FINAL"
-                  : scoring.state.phase === "not_scoreable"
-                    ? "RETRY SCORE"
-                    : scoring.state.phase === "countdown"
-                      ? "FINALISE EARLY"
-                      : "WAITING FOR READY"}
-          </span>
-        </Button>
-        {scoring.canRematch && (
-          <Button
-            variant="bare"
-            size="bare"
-            className="rematch-control"
-            aria-label="Start a rematch"
-            onClick={scoring.rematch}
-          >
-            <RotateCcw aria-hidden="true" />
-            <span>REMATCH</span>
-          </Button>
-        )}
-        <Button variant="bare" size="bare" aria-label="Copy room code" onClick={() => void copyRoomCode()}><Copy aria-hidden="true" /><span>{copied ? "COPIED" : "COPY CODE"}</span></Button>
-        <Button variant="bare" size="bare" className="leave-control" onClick={leave}><LogOut aria-hidden="true" /><span>LEAVE</span></Button>
-      </div>
-    </main>
+    <BattleStage
+      roomId={roomId}
+      role={role}
+      copied={copied}
+      connection={{
+        state: rtc.connectionState,
+        candidateTypes: rtc.candidateTypes,
+        route: rtc.route,
+        error: rtc.error,
+      }}
+      camera={{ status: camera.status, error: camera.error, hasStream: Boolean(camera.stream) }}
+      local={{
+        videoRef: localVideoRef,
+        stream: camera.stream,
+        score: localScore,
+        waitingText: camera.status === "requesting" ? "OPENING CAMERA" : "CAMERA OFF",
+        detection: { state: outfitDetection.detectorState, result: outfitDetection.result },
+        garmentCategories: garmentPerception.localCategories,
+        garmentOverlay: showGarmentOverlays ? garmentPerception.localOverlay : null,
+      }}
+      remote={{
+        videoRef: remoteVideoRef,
+        stream: rtc.remoteStream,
+        score: remoteScore,
+        waitingText: remoteWaitingText,
+        garmentCategories: garmentPerception.remoteCategories,
+        garmentOverlay: showGarmentOverlays ? garmentPerception.remoteOverlay : null,
+      }}
+      scoring={{
+        state: scoring.state,
+        isBusy: scoring.isBusy,
+        isLocked: scoring.isLocked,
+        canRematch: scoring.canRematch,
+        scoresAreProvisional: scoresAreProvisional,
+        error: scoreError,
+        canFinalise,
+      }}
+      dismissedResultId={dismissedResultId}
+      onToggleCamera={camera.stream ? camera.stopCamera : () => void camera.startCamera()}
+      onFinalise={scoring.finalise}
+      onRematch={scoring.rematch}
+      onCopyRoomCode={() => void copyRoomCode()}
+      onLeave={leave}
+      onDismissResult={setDismissedResultId}
+    />
   );
 }

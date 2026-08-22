@@ -3,17 +3,20 @@
 import { BattleOverlay } from "./BattleOverlay";
 
 /**
- * Opening countdown. The scrim stays light because both players are still
- * framing their outfit while this runs — dimming the feeds here would work
- * against the thing the countdown is counting down to.
+ * Lead-in before scoring opens.
+ *
+ * This blocks deliberately: nothing is being judged yet, so covering the feeds
+ * costs nothing and gives both players a shared "get set" beat. Once the round
+ * itself starts the overlay goes away entirely — the remaining time lives in
+ * the strip, and the feeds must stay clear while they are being scored.
  */
 export function CountdownOverlay({ secondsRemaining }: { secondsRemaining: number }) {
   return (
-    <BattleOverlay tone="light" label="Battle starting">
-      <span className="countdown-eyebrow">ROUND STARTING</span>
+    <BattleOverlay label="Round starting">
+      <span className="result-eyebrow">GET SET</span>
       {/* `key` retriggers the pop animation on each tick. */}
       <strong className="countdown-number tabular-nums" key={secondsRemaining} aria-live="assertive">
-        {secondsRemaining}
+        {secondsRemaining === 0 ? "GO" : secondsRemaining}
       </strong>
       <p className="countdown-hint">Hold your fit in frame</p>
     </BattleOverlay>

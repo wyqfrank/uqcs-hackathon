@@ -28,6 +28,10 @@ const configuredRoundDurationMs = Number(process.env.FITTED_ROUND_DURATION_MS ||
 const roundDurationMs = Number.isFinite(configuredRoundDurationMs) && configuredRoundDurationMs > 0
   ? configuredRoundDurationMs
   : 5000;
+const configuredLeadInMs = Number(process.env.FITTED_ROUND_LEAD_IN_MS || 3000);
+const roundLeadInMs = Number.isFinite(configuredLeadInMs) && configuredLeadInMs >= 0
+  ? configuredLeadInMs
+  : 3000;
 const configuredBurstBytes = Number(process.env.FITTED_MAX_BURST_BYTES || 15 * 1024 * 1024);
 const maxBurstBytes = Number.isFinite(configuredBurstBytes) && configuredBurstBytes > 0
   ? configuredBurstBytes
@@ -59,6 +63,7 @@ const scoring = new ScoringCoordinator({
   io,
   inferenceUrl: process.env.FITTED_INFERENCE_API_URL || "http://localhost:8000",
   roundDurationMs,
+  roundLeadInMs,
   maxBurstBytes,
   leaderboard,
 });

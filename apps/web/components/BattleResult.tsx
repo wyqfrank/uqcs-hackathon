@@ -28,12 +28,22 @@ export function BattleResult({
       </div>
     );
   }
+  if (state.phase === "starting") {
+    // The overlay carries the lead-in; the strip stays quiet so the two do not
+    // announce the same number twice.
+    return (
+      <div className="battle-result pending" aria-hidden="true">
+        <span>GET SET</span>
+        <strong>ROUND STARTS IN {state.secondsRemaining}</strong>
+      </div>
+    );
+  }
   if (state.phase === "countdown") {
     const seconds = String(state.secondsRemaining).padStart(2, "0");
     return (
       <div className="battle-result pending" aria-hidden="true">
         <span>ROUND LIVE</span>
-        <strong>STARTING IN 00:{seconds}</strong>
+        <strong>SCORING · 00:{seconds} LEFT</strong>
       </div>
     );
   }
