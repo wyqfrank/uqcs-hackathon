@@ -235,6 +235,7 @@ def test_compare_accepts_three_chronological_pairs_in_one_request(monkeypatch) -
         "battle_id": "FIT-1234",
         "finalisation_id": "final-1",
         "pair_id": "burst-1",
+        "burst_index": ["0", "1", "2"],
         "player_a_sample_id": ["a-0", "a-1", "a-2"],
         "player_b_sample_id": ["b-0", "b-1", "b-2"],
         "player_a_captured_at_ms": ["1000", "1750", "2500"],

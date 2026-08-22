@@ -87,7 +87,8 @@ def validate_comparison_burst(
     player_b_sample_id: list[str],
     player_a_captured_at_ms: list[float],
     player_b_captured_at_ms: list[float],
-) -> int:
+    burst_index: list[int] | None,
+) -> tuple[int, list[int]]:
     lengths = {
         len(player_a),
         len(player_b),
@@ -107,6 +108,16 @@ def validate_comparison_burst(
             status_code=422,
             detail="Comparison requires one to three paired images.",
         )
+    indexes = burst_index if burst_index is not None else list(range(count))
+    if (
+        len(indexes) != count
+        or any(index < 0 or index > 2 for index in indexes)
+        or indexes != sorted(set(indexes))
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Burst indexes must be unique, chronological values from zero to two.",
+        )
     if any(not sample_id or len(sample_id) > 128 for sample_id in (
         *player_a_sample_id,
         *player_b_sample_id,
@@ -121,7 +132,7 @@ def validate_comparison_burst(
                 status_code=422,
                 detail="Burst capture timestamps must be chronological.",
             )
-    return count
+    return count, indexes
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -200,14 +211,16 @@ async def compare(
     player_b_captured_at_ms: Annotated[list[float], Form()],
     player_a: Annotated[list[UploadFile], File(description="Chronological frames for player A")],
     player_b: Annotated[list[UploadFile], File(description="Chronological frames for player B")],
+    burst_index: Annotated[list[int] | None, Form()] = None,
 ) -> ComparisonResponse:
-    count = validate_comparison_burst(
+    count, burst_indexes = validate_comparison_burst(
         player_a,
         player_b,
         player_a_sample_id,
         player_b_sample_id,
         player_a_captured_at_ms,
         player_b_captured_at_ms,
+        burst_index,
     )
     player_a_bytes = [await read_image(upload) for upload in player_a]
     player_b_bytes = [await read_image(upload) for upload in player_b]
@@ -219,7 +232,7 @@ async def compare(
     latest = count - 1
     sample_pairs = tuple(
         ComparisonSamplePair(
-            burst_index=index,
+            burst_index=burst_indexes[index],
             player_a_sample_id=player_a_sample_id[index],
             player_b_sample_id=player_b_sample_id[index],
             player_a_captured_at_ms=player_a_captured_at_ms[index],

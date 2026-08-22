@@ -4,11 +4,8 @@ import { ScoringCoordinator } from "../lib/scoring-coordinator.mjs";
 
 class FakeIo {
   events = [];
-
   to(roomId) {
-    return {
-      emit: (name, payload) => this.events.push({ roomId, name, payload }),
-    };
+    return { emit: (name, payload) => this.events.push({ roomId, name, payload }) };
   }
 }
 
@@ -18,25 +15,27 @@ class FakeSocket {
     this.handlers = new Map();
     this.events = [];
   }
-
-  on(name, handler) {
-    this.handlers.set(name, handler);
-  }
-
-  emit(name, payload) {
-    this.events.push({ name, payload });
-  }
+  on(name, handler) { this.handlers.set(name, handler); }
+  emit(name, payload) { this.events.push({ name, payload }); }
 }
+
+const delay = (milliseconds = 0) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function setup(fetchImpl, options = {}) {
   const io = new FakeIo();
-  const ids = ["final-1", "pair-1", "final-2", "pair-2"];
+  let id = 0;
   const coordinator = new ScoringCoordinator({
     io,
     inferenceUrl: "http://inference.test",
     fetchImpl,
-    createId: () => ids.shift(),
-    collectionTimeoutMs: options.collectionTimeoutMs ?? 3000,
+    createId: () => `id-${++id}`,
+    roundDurationMs: options.roundDurationMs ?? 1000,
+    collectionTimeoutMs: options.collectionTimeoutMs ?? 80,
+    burstOffsetsMs: options.burstOffsetsMs ?? [0],
+    burstSlotTimeoutMs: options.burstSlotTimeoutMs ?? 40,
+    inferenceTimeoutMs: options.inferenceTimeoutMs ?? 100,
+    maxBurstBytes: options.maxBurstBytes ?? 1024,
   });
   const host = new FakeSocket("host-socket");
   const guest = new FakeSocket("guest-socket");
@@ -47,11 +46,38 @@ function setup(fetchImpl, options = {}) {
   return { coordinator, io, host, guest };
 }
 
-function frame(finalisationId, sampleId, byte = 1) {
+function ready(coordinator, socket, value = true) {
+  let acknowledgement;
+  coordinator.reportReadiness(socket, { ready: value }, (result) => {
+    acknowledgement = result;
+  });
+  return acknowledgement;
+}
+
+function startRound(coordinator, host, guest) {
+  ready(coordinator, host);
+  ready(coordinator, guest);
+  return coordinator.rooms.get("FIT-1234");
+}
+
+async function startFinalisation(coordinator, host, guest, starter = host) {
+  startRound(coordinator, host, guest);
+  let acknowledgement;
+  coordinator.requestFinalisation(starter, (result) => {
+    acknowledgement = result;
+  });
+  await delay(2);
+  return { acknowledgement, state: coordinator.rooms.get("FIT-1234") };
+}
+
+function finalFrame(state, slot, role, sampleId, byte = 1) {
+  const offset = slot.burstIndex * 750;
   return {
-    finalisationId,
+    finalisationId: state.finalisationId,
+    requestId: slot.requestId,
+    burstIndex: slot.burstIndex,
     sampleId,
-    capturedAtEpochMs: 1000,
+    capturedAtEpochMs: 1000 + offset + (role === "guest" ? 5 : 0),
     mimeType: "image/webp",
     image: Buffer.from([byte, byte + 1]),
   };
@@ -67,46 +93,70 @@ function garmentFrame(requestId, sampleId, byte = 1) {
   };
 }
 
-const flush = () => new Promise((resolve) => setImmediate(resolve));
-
-test("pairs live garment frames by server role and broadcasts a separate result", async () => {
-  const requests = [];
-  const result = {
-    battleId: "FIT-1234",
-    pairId: "final-1",
-    playerASampleId: "host-garment",
-    playerBSampleId: "guest-garment",
-    playerA: { categories: [] },
-    playerB: { categories: [] },
+function resultFromForm(form, overrides = {}) {
+  const indexes = form.getAll("burst_index").map(Number);
+  const playerAIds = form.getAll("player_a_sample_id");
+  const playerBIds = form.getAll("player_b_sample_id");
+  const playerATimes = form.getAll("player_a_captured_at_ms").map(Number);
+  const playerBTimes = form.getAll("player_b_captured_at_ms").map(Number);
+  const latest = indexes.length - 1;
+  return {
+    phase: "final",
+    battleId: form.get("battle_id"),
+    finalisationId: form.get("finalisation_id"),
+    pairId: form.get("pair_id"),
+    playerASampleId: playerAIds[latest],
+    playerBSampleId: playerBIds[latest],
+    playerACapturedAtMs: playerATimes[latest],
+    playerBCapturedAtMs: playerBTimes[latest],
+    samplePairs: indexes.map((burstIndex, index) => ({
+      burstIndex,
+      playerASampleId: playerAIds[index],
+      playerBSampleId: playerBIds[index],
+      playerACapturedAtMs: playerATimes[index],
+      playerBCapturedAtMs: playerBTimes[index],
+    })),
+    playerAScore: 82,
+    playerBScore: 71,
+    winner: "player_a",
+    ...overrides,
   };
-  const { coordinator, io, host, guest } = setup(async (url, options) => {
-    requests.push({ url, form: options.body });
-    return { ok: true, json: async () => result };
+}
+
+test("pairs live garment frames by server role", async () => {
+  const requests = [];
+  const { coordinator, io, host, guest } = setup(async (_url, options) => {
+    requests.push(options.body);
+    return {
+      ok: true,
+      json: async () => ({
+        battleId: "FIT-1234",
+        pairId: options.body.get("pair_id"),
+        playerASampleId: "host-garment",
+        playerBSampleId: "guest-garment",
+        playerA: { categories: [] },
+        playerB: { categories: [] },
+      }),
+    };
   });
   const state = coordinator.perceptionRooms.get("FIT-1234");
-
   coordinator.requestGarmentFrames("FIT-1234", state);
   coordinator.submitGarmentFrame(
     guest,
-    garmentFrame("final-1", "guest-garment", 7),
+    garmentFrame(state.requestId, "guest-garment", 7),
     () => {},
   );
   coordinator.submitGarmentFrame(
     host,
-    garmentFrame("final-1", "host-garment", 3),
+    garmentFrame(state.requestId, "host-garment", 3),
     () => {},
   );
   await flush();
 
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, "http://inference.test/v1/garments/pair");
-  assert.equal(requests[0].form.get("player_a_sample_id"), "host-garment");
-  assert.equal(requests[0].form.get("player_b_sample_id"), "guest-garment");
-  assert.deepEqual(io.events.at(-1), {
-    roomId: "FIT-1234",
-    name: "garment-result",
-    payload: result,
-  });
+  assert.equal(requests[0].get("player_a_sample_id"), "host-garment");
+  assert.equal(requests[0].get("player_b_sample_id"), "guest-garment");
+  assert.equal(io.events.at(-1).name, "garment-result");
 });
 
 test("live garment inference has zero queue depth while a pair is in flight", async () => {
@@ -114,245 +164,262 @@ test("live garment inference has zero queue depth while a pair is in flight", as
   const pending = new Promise((resolve) => { finishRequest = resolve; });
   const { coordinator, io, host, guest } = setup(async () => pending);
   const state = coordinator.perceptionRooms.get("FIT-1234");
-
   coordinator.requestGarmentFrames("FIT-1234", state);
-  coordinator.submitGarmentFrame(host, garmentFrame("final-1", "host"), () => {});
-  coordinator.submitGarmentFrame(guest, garmentFrame("final-1", "guest"), () => {});
+  coordinator.submitGarmentFrame(host, garmentFrame(state.requestId, "host"), () => {});
+  coordinator.submitGarmentFrame(guest, garmentFrame(state.requestId, "guest"), () => {});
   coordinator.requestGarmentFrames("FIT-1234", state);
 
   assert.equal(state.inFlight, true);
-  assert.equal(state.requestId, null);
-  assert.equal(
-    io.events.filter(({ name }) => name === "garment-frame-request").length,
-    1,
-  );
-  finishRequest({ ok: false, json: async () => ({ detail: "not configured" }) });
+  assert.equal(io.events.filter(({ name }) => name === "garment-frame-request").length, 1);
+  finishRequest({ ok: false, status: 503, json: async () => ({ detail: "disabled" }) });
   await flush();
 });
 
-test("finalisation aborts and pauses the live garment lane", () => {
-  const { coordinator, host } = setup(async () => {
-    throw new Error("no request expected");
+test("role-derived readiness starts exactly one server countdown", () => {
+  const { coordinator, io, host, guest } = setup(async () => {
+    throw new Error("inference must not run");
   });
-  const state = coordinator.perceptionRooms.get("FIT-1234");
-  coordinator.requestGarmentFrames("FIT-1234", state);
 
-  coordinator.requestFinalisation(host, () => {});
-  let acknowledgement;
-  coordinator.submitGarmentFrame(
-    host,
-    garmentFrame("final-1", "late-garment"),
-    (value) => { acknowledgement = value; },
-  );
+  assert.deepEqual(ready(coordinator, host), { ok: true });
+  assert.equal(coordinator.rooms.has("FIT-1234"), false);
+  assert.deepEqual(ready(coordinator, guest), { ok: true });
+  const first = coordinator.rooms.get("FIT-1234");
+  ready(coordinator, guest);
 
-  assert.equal(coordinator.perceptionRooms.has("FIT-1234"), false);
-  assert.equal(acknowledgement.ok, false);
-  assert.equal(acknowledgement.paused, true);
+  assert.equal(first.phase, "countdown");
+  assert.equal(coordinator.rooms.get("FIT-1234"), first);
+  assert.equal(io.events.filter(({ name }) => name === "score-round-started").length, 1);
 });
 
-test("pairs server-derived roles once and broadcasts the authoritative result", async () => {
+test("the server timer automatically enters final collection", async () => {
+  const { coordinator, io, host, guest } = setup(async () => {
+    throw new Error("inference must not run without frames");
+  }, { roundDurationMs: 12, collectionTimeoutMs: 80 });
+  startRound(coordinator, host, guest);
+
+  await delay(20);
+
+  const state = coordinator.rooms.get("FIT-1234");
+  assert.equal(state.phase, "collecting");
+  assert.equal(io.events.some(({ name }) => name === "score-finalisation-started"), true);
+  assert.equal(io.events.some(({ name }) => name === "score-frame-request"), true);
+});
+
+test("either player can finalise early and pause garment perception", async () => {
+  const { coordinator, host, guest } = setup(async () => {
+    throw new Error("inference must not run before frames arrive");
+  });
+  startRound(coordinator, host, guest);
+  let acknowledgement;
+  coordinator.requestFinalisation(guest, (result) => { acknowledgement = result; });
+  await delay(2);
+
+  assert.equal(acknowledgement.ok, true);
+  assert.equal(coordinator.rooms.get("FIT-1234").phase, "collecting");
+  assert.equal(coordinator.perceptionRooms.has("FIT-1234"), false);
+});
+
+test("disconnect cancels a round and reconnect readiness starts a new one", () => {
+  const { coordinator, io, host, guest } = setup(async () => {
+    throw new Error("inference must not run");
+  });
+  const first = startRound(coordinator, host, guest);
+  coordinator.leave(guest.id);
+
+  assert.equal(coordinator.rooms.has("FIT-1234"), false);
+  assert.equal(io.events.at(-1).name, "score-round-cancelled");
+  const replacement = new FakeSocket("replacement-guest");
+  coordinator.attachSocket(replacement);
+  coordinator.assignPlayer(replacement, "FIT-1234", "guest");
+  ready(coordinator, replacement);
+  const second = coordinator.rooms.get("FIT-1234");
+
+  assert.equal(second.phase, "countdown");
+  assert.notEqual(second.roundId, first.roundId);
+  coordinator.beginFinalisation("FIT-1234", first);
+  assert.equal(coordinator.rooms.get("FIT-1234"), second);
+});
+
+test("three requested slots produce one ordered inference request", async () => {
   const requests = [];
-  const result = {
-    phase: "final",
-    battleId: "FIT-1234",
-    finalisationId: "final-1",
-    pairId: "pair-1",
-    playerAScore: 82,
-    playerBScore: 71,
-    winner: "player_a",
-  };
   const { coordinator, io, host, guest } = setup(async (_url, options) => {
     requests.push(options.body);
-    return { ok: true, json: async () => result };
-  });
+    return { ok: true, json: async () => resultFromForm(options.body) };
+  }, { burstOffsetsMs: [0, 5, 10], burstSlotTimeoutMs: 100, collectionTimeoutMs: 150 });
+  const { state } = await startFinalisation(coordinator, host, guest);
+  await delay(15);
 
-  let finaliseAck;
-  coordinator.requestFinalisation(host, (value) => { finaliseAck = value; });
-  coordinator.submitFrame(guest, frame("final-1", "guest-sample", 7), () => {});
-  coordinator.submitFrame(host, frame("final-1", "host-sample", 3), () => {});
+  assert.deepEqual(
+    io.events.filter(({ name }) => name === "score-frame-request").map(({ payload }) => payload.burstIndex),
+    [0, 1, 2],
+  );
+  for (const slot of state.slots) {
+    coordinator.submitFrame(host, finalFrame(state, slot, "host", `host-${slot.burstIndex}`), () => {});
+    coordinator.submitFrame(guest, finalFrame(state, slot, "guest", `guest-${slot.burstIndex}`), () => {});
+  }
+  coordinator.finishBurstCollection("FIT-1234", state);
   await flush();
 
-  assert.deepEqual(finaliseAck, { ok: true, finalisationId: "final-1", locked: false });
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].get("player_a_sample_id"), "host-sample");
-  assert.equal(requests[0].get("player_b_sample_id"), "guest-sample");
-  assert.deepEqual(io.events.at(-1), {
-    roomId: "FIT-1234",
-    name: "score-result",
-    payload: result,
-  });
+  assert.deepEqual(requests[0].getAll("burst_index"), ["0", "1", "2"]);
+  assert.deepEqual(requests[0].getAll("player_a_sample_id"), ["host-0", "host-1", "host-2"]);
+  assert.deepEqual(requests[0].getAll("player_b_sample_id"), ["guest-0", "guest-1", "guest-2"]);
   assert.equal(coordinator.rooms.get("FIT-1234").phase, "final");
 });
 
-test("either player can start finalisation", () => {
-  const { coordinator, io, guest } = setup(async () => {
-    throw new Error("inference must not run before frames arrive");
-  });
-  let acknowledgement;
-
-  coordinator.requestFinalisation(guest, (value) => { acknowledgement = value; });
-
-  assert.deepEqual(acknowledgement, {
-    ok: true,
-    finalisationId: "final-1",
-    locked: false,
-  });
-  assert.equal(io.events.at(-1).name, "score-finalisation-started");
-});
-
-test("replaces a player's pending frame with its newest submission", async () => {
+test("the newest submission replaces an earlier frame in the same slot", async () => {
   let submittedForm;
-  const result = {
-    phase: "final",
-    battleId: "FIT-1234",
-    finalisationId: "final-1",
-    pairId: "pair-1",
-  };
   const { coordinator, host, guest } = setup(async (_url, options) => {
     submittedForm = options.body;
-    return { ok: true, json: async () => result };
+    return { ok: true, json: async () => resultFromForm(options.body) };
   });
-
-  coordinator.requestFinalisation(host, () => {});
-  coordinator.submitFrame(host, frame("final-1", "old-host"), () => {});
-  coordinator.submitFrame(host, frame("final-1", "new-host"), () => {});
-  coordinator.submitFrame(guest, frame("final-1", "guest"), () => {});
+  const { state } = await startFinalisation(coordinator, host, guest);
+  const [slot] = state.slots;
+  coordinator.submitFrame(host, finalFrame(state, slot, "host", "old-host"), () => {});
+  coordinator.submitFrame(host, finalFrame(state, slot, "host", "new-host", 4), () => {});
+  coordinator.submitFrame(guest, finalFrame(state, slot, "guest", "guest"), () => {});
+  coordinator.finishBurstCollection("FIT-1234", state);
   await flush();
 
   assert.equal(submittedForm.get("player_a_sample_id"), "new-host");
 });
 
-test("rejects stale finalisation IDs without invoking inference", () => {
+test("incomplete slots are discarded while a complete pair remains usable", async () => {
+  let submittedForm;
+  const { coordinator, host, guest } = setup(async (_url, options) => {
+    submittedForm = options.body;
+    return { ok: true, json: async () => resultFromForm(options.body) };
+  }, { burstOffsetsMs: [0, 5, 10], burstSlotTimeoutMs: 100, collectionTimeoutMs: 150 });
+  const { state } = await startFinalisation(coordinator, host, guest);
+  await delay(15);
+  coordinator.submitFrame(host, finalFrame(state, state.slots[0], "host", "host-0"), () => {});
+  coordinator.submitFrame(guest, finalFrame(state, state.slots[0], "guest", "guest-0"), () => {});
+  coordinator.submitFrame(host, finalFrame(state, state.slots[2], "host", "unpaired-host"), () => {});
+  coordinator.finishBurstCollection("FIT-1234", state);
+  await flush();
+
+  assert.deepEqual(submittedForm.getAll("burst_index"), ["0"]);
+  assert.equal(submittedForm.getAll("player_a").length, 1);
+});
+
+test("no complete pair returns retryable not-scoreable without inference", async () => {
   let calls = 0;
-  const { coordinator, host } = setup(async () => {
+  const { coordinator, io, host, guest } = setup(async () => {
     calls += 1;
     return { ok: true, json: async () => ({}) };
   });
-  coordinator.requestFinalisation(host, () => {});
-  let acknowledgement;
+  const { state } = await startFinalisation(coordinator, host, guest);
+  for (const socket of [host, guest]) {
+    coordinator.reportUnavailable(socket, {
+      finalisationId: state.finalisationId,
+      requestId: state.slots[0].requestId,
+      burstIndex: 0,
+    });
+  }
 
-  coordinator.submitFrame(host, frame("stale-final", "sample"), (value) => {
-    acknowledgement = value;
-  });
-
-  assert.equal(acknowledgement.ok, false);
   assert.equal(calls, 0);
-});
-
-test("a missing local candidate produces a retryable not-scoreable result", () => {
-  const { coordinator, io, host } = setup(async () => {
-    throw new Error("inference must not run");
-  });
-  coordinator.requestFinalisation(host, () => {});
-
-  coordinator.reportUnavailable(host, { finalisationId: "final-1" });
-
-  const event = io.events.at(-1);
-  assert.equal(event.name, "score-result");
-  assert.equal(event.payload.phase, "not_scoreable");
-  assert.equal(event.payload.reasonCode, "frame_unavailable");
-  assert.equal(event.payload.retryable, true);
+  assert.equal(io.events.at(-1).name, "score-result");
+  assert.equal(io.events.at(-1).payload.phase, "not_scoreable");
+  assert.equal(io.events.at(-1).payload.samplePairs.length, 0);
 });
 
 test("collection deadline expires without invoking inference", async () => {
   let calls = 0;
-  const { coordinator, io, host } = setup(async () => {
+  const { coordinator, io, host, guest } = setup(async () => {
     calls += 1;
     return { ok: true, json: async () => ({}) };
-  }, { collectionTimeoutMs: 10 });
-  coordinator.requestFinalisation(host, () => {});
-
-  await new Promise((resolve) => setTimeout(resolve, 25));
+  }, { collectionTimeoutMs: 15, burstSlotTimeoutMs: 8 });
+  await startFinalisation(coordinator, host, guest);
+  await delay(25);
 
   assert.equal(calls, 0);
   assert.equal(io.events.at(-1).payload.reasonCode, "frame_unavailable");
-  assert.equal(coordinator.rooms.get("FIT-1234").phase, "failed");
 });
 
-test("rejects extra frames while one inference request is active", async () => {
-  let resolveRequest;
-  let calls = 0;
-  const { coordinator, host, guest } = setup(() => {
-    calls += 1;
-    return new Promise((resolve) => { resolveRequest = resolve; });
-  });
-  coordinator.requestFinalisation(host, () => {});
-  coordinator.submitFrame(host, frame("final-1", "host"), () => {});
-  coordinator.submitFrame(guest, frame("final-1", "guest"), () => {});
+test("aggregate burst limit rejects excess image data", async () => {
+  const { coordinator, host, guest } = setup(async () => {
+    throw new Error("inference must not run");
+  }, { maxBurstBytes: 3 });
+  const { state } = await startFinalisation(coordinator, host, guest);
+  const [slot] = state.slots;
   let acknowledgement;
-
-  coordinator.submitFrame(host, frame("final-1", "host-late"), (value) => {
-    acknowledgement = value;
+  coordinator.submitFrame(host, finalFrame(state, slot, "host", "host"), () => {});
+  coordinator.submitFrame(guest, finalFrame(state, slot, "guest", "guest"), (result) => {
+    acknowledgement = result;
   });
 
-  assert.equal(calls, 1);
   assert.equal(acknowledgement.ok, false);
-  resolveRequest({
-    ok: true,
-    json: async () => ({
-      phase: "final",
-      battleId: "FIT-1234",
-      finalisationId: "final-1",
-      pairId: "pair-1",
-    }),
+  assert.match(acknowledgement.error, /too large/i);
+});
+
+test("extra frames are rejected while inference is active", async () => {
+  let resolveRequest;
+  let submittedForm;
+  const pending = new Promise((resolve) => { resolveRequest = resolve; });
+  const { coordinator, host, guest } = setup(async (_url, options) => {
+    submittedForm = options.body;
+    return pending;
   });
+  const { state } = await startFinalisation(coordinator, host, guest);
+  const [slot] = state.slots;
+  coordinator.submitFrame(host, finalFrame(state, slot, "host", "host"), () => {});
+  coordinator.submitFrame(guest, finalFrame(state, slot, "guest", "guest"), () => {});
+  coordinator.finishBurstCollection("FIT-1234", state);
+  let acknowledgement;
+  coordinator.submitFrame(host, finalFrame(state, slot, "host", "late"), (result) => {
+    acknowledgement = result;
+  });
+
+  assert.equal(acknowledgement.ok, false);
+  resolveRequest({ ok: true, json: async () => resultFromForm(submittedForm) });
   await flush();
 });
 
-test("provider failure retains paired sample identity for retry UI", async () => {
+test("provider failure retains complete burst identity for retry", async () => {
   const { coordinator, io, host, guest } = setup(async () => ({
     ok: false,
     status: 503,
     json: async () => ({ detail: "Gemini is unavailable." }),
   }));
-  coordinator.requestFinalisation(host, () => {});
-  coordinator.submitFrame(host, frame("final-1", "host-sample"), () => {});
-  coordinator.submitFrame(guest, frame("final-1", "guest-sample"), () => {});
-
+  const { state } = await startFinalisation(coordinator, host, guest);
+  const [slot] = state.slots;
+  coordinator.submitFrame(host, finalFrame(state, slot, "host", "host-sample"), () => {});
+  coordinator.submitFrame(guest, finalFrame(state, slot, "guest", "guest-sample"), () => {});
+  coordinator.finishBurstCollection("FIT-1234", state);
   await flush();
 
   const result = io.events.at(-1).payload;
-  assert.equal(result.phase, "not_scoreable");
   assert.equal(result.reasonCode, "provider_unavailable");
   assert.equal(result.playerASampleId, "host-sample");
-  assert.equal(result.playerBSampleId, "guest-sample");
-  assert.equal(result.playerACapturedAtMs, 1000);
+  assert.equal(result.samplePairs[0].playerBSampleId, "guest-sample");
 });
 
-test("a late inference response cannot overwrite a newer finalisation", async () => {
+test("a late response cannot overwrite a retry finalisation", async () => {
   let resolveRequest;
-  const { coordinator, io, host, guest } = setup(() => new Promise((resolve) => {
-    resolveRequest = resolve;
-  }));
-  coordinator.requestFinalisation(host, () => {});
-  coordinator.submitFrame(host, frame("final-1", "host"), () => {});
-  coordinator.submitFrame(guest, frame("final-1", "guest"), () => {});
-  const firstState = coordinator.rooms.get("FIT-1234");
-  coordinator.failRoom(
-    "FIT-1234",
-    firstState,
-    "provider_timeout",
-    "Final scoring timed out. Please retry.",
-  );
-  coordinator.requestFinalisation(guest, () => {});
-
-  resolveRequest({
-    ok: true,
-    json: async () => ({
-      phase: "final",
-      battleId: "FIT-1234",
-      finalisationId: "final-1",
-      pairId: "pair-1",
-    }),
+  let submittedForm;
+  const { coordinator, io, host, guest } = setup(async (_url, options) => {
+    submittedForm = options.body;
+    return new Promise((resolve) => { resolveRequest = resolve; });
   });
+  const { state } = await startFinalisation(coordinator, host, guest);
+  const [slot] = state.slots;
+  coordinator.submitFrame(host, finalFrame(state, slot, "host", "host"), () => {});
+  coordinator.submitFrame(guest, finalFrame(state, slot, "guest", "guest"), () => {});
+  coordinator.finishBurstCollection("FIT-1234", state);
+  coordinator.failRoom("FIT-1234", state, "provider_timeout", "Retry.");
+  let acknowledgement;
+  coordinator.requestFinalisation(guest, (result) => { acknowledgement = result; });
+  const replacement = coordinator.rooms.get("FIT-1234");
+  resolveRequest({ ok: true, json: async () => resultFromForm(submittedForm) });
   await flush();
 
-  assert.equal(coordinator.rooms.get("FIT-1234").finalisationId, "final-2");
+  assert.equal(acknowledgement.ok, true);
+  assert.equal(coordinator.rooms.get("FIT-1234"), replacement);
   assert.equal(io.events.filter(({ name }) => name === "score-result").length, 1);
 });
 
-test("replays a locked result to a reconnecting player", () => {
-  const { coordinator, host } = setup(async () => ({ ok: true, json: async () => ({}) }));
+test("replays a locked result and readiness to a reconnecting player", () => {
+  const { coordinator } = setup(async () => ({ ok: true, json: async () => ({}) }));
   const locked = { phase: "final", finalisationId: "final-1" };
   coordinator.rooms.set("FIT-1234", {
     phase: "final",
@@ -360,23 +427,20 @@ test("replays a locked result to a reconnecting player", () => {
     result: locked,
   });
   const replacement = new FakeSocket("replacement-host");
-
   coordinator.assignPlayer(replacement, "FIT-1234", "host");
 
-  assert.deepEqual(replacement.events, [{ name: "score-result", payload: locked }]);
-  coordinator.leave(host.id);
+  assert.equal(replacement.events[0].name, "score-result");
+  assert.deepEqual(replacement.events[0].payload, locked);
+  assert.equal(replacement.events[1].name, "score-readiness-updated");
 });
 
-test("clears pending room work only after the room becomes empty", () => {
-  const { coordinator, host, guest } = setup(async () => ({
-    ok: true,
-    json: async () => ({}),
-  }));
-  coordinator.requestFinalisation(host, () => {});
-
+test("disconnect clears pending work and an empty room clears readiness", async () => {
+  const { coordinator, host, guest } = setup(async () => {
+    throw new Error("inference must not run");
+  });
+  await startFinalisation(coordinator, host, guest);
   coordinator.leave(host.id);
-  assert.equal(coordinator.rooms.has("FIT-1234"), true);
-
-  coordinator.leave(guest.id);
   assert.equal(coordinator.rooms.has("FIT-1234"), false);
+  coordinator.leave(guest.id);
+  assert.equal(coordinator.readinessRooms.has("FIT-1234"), false);
 });

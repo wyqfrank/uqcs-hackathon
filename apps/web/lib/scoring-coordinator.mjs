@@ -1,21 +1,29 @@
 import { randomUUID } from "node:crypto";
 
 const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_MAX_BURST_BYTES = 15 * 1024 * 1024;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/webp"]);
 
 function errorResult(roomId, state, reasonCode, message) {
-  const playerA = state.pairedIdentity?.playerA ?? state.frames.player_a;
-  const playerB = state.pairedIdentity?.playerB ?? state.frames.player_b;
+  const samplePairs = state.pairedIdentity ?? [];
+  const latest = samplePairs.at(-1);
   return {
     phase: "not_scoreable",
     intendedPhase: "final",
     battleId: roomId,
     finalisationId: state.finalisationId,
     pairId: state.pairId ?? null,
-    playerASampleId: playerA?.sampleId ?? null,
-    playerBSampleId: playerB?.sampleId ?? null,
-    playerACapturedAtMs: playerA?.capturedAtEpochMs ?? null,
-    playerBCapturedAtMs: playerB?.capturedAtEpochMs ?? null,
+    playerASampleId: latest?.playerA.sampleId ?? null,
+    playerBSampleId: latest?.playerB.sampleId ?? null,
+    playerACapturedAtMs: latest?.playerA.capturedAtEpochMs ?? null,
+    playerBCapturedAtMs: latest?.playerB.capturedAtEpochMs ?? null,
+    samplePairs: samplePairs.map((pair) => ({
+      burstIndex: pair.burstIndex,
+      playerASampleId: pair.playerA.sampleId,
+      playerBSampleId: pair.playerB.sampleId,
+      playerACapturedAtMs: pair.playerA.capturedAtEpochMs,
+      playerBCapturedAtMs: pair.playerB.capturedAtEpochMs,
+    })),
     reasonCode,
     message,
     retryable: true,
@@ -41,28 +49,40 @@ export class ScoringCoordinator {
     fetchImpl = fetch,
     now = Date.now,
     createId = randomUUID,
+    roundDurationMs = 30000,
     collectionTimeoutMs = 3000,
+    burstOffsetsMs = [0, 750, 1500],
+    burstSlotTimeoutMs = 650,
     inferenceTimeoutMs = 30000,
     perceptionIntervalMs = 1000,
     perceptionTimeoutMs = 5000,
     maxImageBytes = DEFAULT_MAX_IMAGE_BYTES,
+    maxBurstBytes = DEFAULT_MAX_BURST_BYTES,
   }) {
     this.io = io;
     this.inferenceUrl = inferenceUrl.replace(/\/$/, "");
     this.fetchImpl = fetchImpl;
     this.now = now;
     this.createId = createId;
+    this.roundDurationMs = roundDurationMs;
     this.collectionTimeoutMs = collectionTimeoutMs;
+    this.burstOffsetsMs = [...burstOffsetsMs];
+    this.burstSlotTimeoutMs = burstSlotTimeoutMs;
     this.inferenceTimeoutMs = inferenceTimeoutMs;
     this.perceptionIntervalMs = perceptionIntervalMs;
     this.perceptionTimeoutMs = perceptionTimeoutMs;
     this.maxImageBytes = maxImageBytes;
+    this.maxBurstBytes = maxBurstBytes;
     this.players = new Map();
+    this.readinessRooms = new Map();
     this.rooms = new Map();
     this.perceptionRooms = new Map();
   }
 
   attachSocket(socket) {
+    socket.on("score-readiness", (payload, acknowledge = () => {}) => {
+      this.reportReadiness(socket, payload, acknowledge);
+    });
     socket.on("score-finalise", (_payload, acknowledge = () => {}) => {
       this.requestFinalisation(socket, acknowledge);
     });
@@ -83,8 +103,19 @@ export class ScoringCoordinator {
   assignPlayer(socket, roomId, role) {
     const playerRole = role === "host" ? "player_a" : "player_b";
     this.players.set(socket.id, { roomId, playerRole });
+    const readiness = this.ensureReadiness(roomId);
+    readiness[playerRole] = false;
     const state = this.rooms.get(roomId);
     if (state?.phase === "final" && state.result) socket.emit("score-result", state.result);
+    if (state?.phase === "failed" && state.result) socket.emit("score-result", state.result);
+    if (state?.phase === "countdown") {
+      socket.emit("score-round-started", this.roundPayload(roomId, state));
+    }
+    socket.emit("score-readiness-updated", {
+      battleId: roomId,
+      playerAReady: readiness.player_a,
+      playerBReady: readiness.player_b,
+    });
     const perception = this.perceptionRooms.get(roomId);
     if (perception?.result) socket.emit("garment-result", perception.result);
     const playerCount = [...this.players.values()].filter(
@@ -97,6 +128,23 @@ export class ScoringCoordinator {
     const player = this.players.get(socketId);
     this.players.delete(socketId);
     if (!player) return;
+    const readiness = this.ensureReadiness(player.roomId);
+    readiness[player.playerRole] = false;
+    this.io.to(player.roomId).emit("score-readiness-updated", {
+      battleId: player.roomId,
+      playerAReady: readiness.player_a,
+      playerBReady: readiness.player_b,
+    });
+    const roomState = this.rooms.get(player.roomId);
+    if (roomState && ["countdown", "collecting", "analysing"].includes(roomState.phase)) {
+      this.disposeState(roomState);
+      this.rooms.delete(player.roomId);
+      this.io.to(player.roomId).emit("score-round-cancelled", {
+        battleId: player.roomId,
+        roundId: roomState.roundId ?? null,
+        reason: "player_disconnected",
+      });
+    }
     const stillOccupied = [...this.players.values()].some(
       ({ roomId }) => roomId === player.roomId,
     );
@@ -105,6 +153,66 @@ export class ScoringCoordinator {
       return;
     }
     this.stopPerception(player.roomId);
+  }
+
+  ensureReadiness(roomId) {
+    let readiness = this.readinessRooms.get(roomId);
+    if (!readiness) {
+      readiness = { player_a: false, player_b: false };
+      this.readinessRooms.set(roomId, readiness);
+    }
+    return readiness;
+  }
+
+  reportReadiness(socket, payload, acknowledge) {
+    const player = this.players.get(socket.id);
+    if (!player) {
+      acknowledge({ ok: false, error: "Join a battle before reporting readiness." });
+      return;
+    }
+    const readiness = this.ensureReadiness(player.roomId);
+    readiness[player.playerRole] = payload?.ready === true;
+    this.io.to(player.roomId).emit("score-readiness-updated", {
+      battleId: player.roomId,
+      playerAReady: readiness.player_a,
+      playerBReady: readiness.player_b,
+    });
+    acknowledge({ ok: true });
+    const state = this.rooms.get(player.roomId);
+    if (readiness.player_a && readiness.player_b && !state) {
+      this.startRound(player.roomId);
+    }
+  }
+
+  roundPayload(roomId, state) {
+    return {
+      battleId: roomId,
+      roundId: state.roundId,
+      serverNow: this.now(),
+      endsAt: state.endsAt,
+    };
+  }
+
+  startRound(roomId) {
+    if (this.rooms.has(roomId)) return;
+    const state = {
+      phase: "countdown",
+      roundId: this.createId(),
+      endsAt: this.now() + this.roundDurationMs,
+      timer: null,
+      slotTimers: [],
+      abortController: null,
+      result: null,
+      pairedIdentity: [],
+    };
+    state.timer = setTimeout(() => {
+      if (this.rooms.get(roomId) === state && state.phase === "countdown") {
+        this.beginFinalisation(roomId, state);
+      }
+    }, this.roundDurationMs);
+    state.timer.unref?.();
+    this.rooms.set(roomId, state);
+    this.io.to(roomId).emit("score-round-started", this.roundPayload(roomId, state));
   }
 
   requestFinalisation(socket, acknowledge) {
@@ -132,33 +240,65 @@ export class ScoringCoordinator {
       return;
     }
 
-    if (existing) this.disposeState(existing);
-    this.stopPerception(player.roomId);
+    if (!existing || !["countdown", "failed"].includes(existing.phase)) {
+      acknowledge({ ok: false, error: "Wait for the battle countdown before finalising." });
+      return;
+    }
+
+    const finalisationId = this.beginFinalisation(player.roomId, existing);
+    acknowledge({ ok: true, finalisationId, locked: false });
+  }
+
+  beginFinalisation(roomId, existing) {
+    if (this.rooms.get(roomId) !== existing) return existing.finalisationId ?? null;
+    this.disposeState(existing);
+    this.stopPerception(roomId);
     const finalisationId = this.createId();
     const deadlineAt = this.now() + this.collectionTimeoutMs;
     const state = {
       phase: "collecting",
+      roundId: existing.roundId ?? null,
       finalisationId,
       deadlineAt,
       pairId: null,
-      pairedIdentity: null,
-      frames: { player_a: null, player_b: null },
+      pairedIdentity: [],
+      slots: this.burstOffsetsMs.map((offsetMs, burstIndex) => ({
+        burstIndex,
+        offsetMs,
+        requestId: this.createId(),
+        deadlineAt: null,
+        requested: false,
+        settled: false,
+        responses: { player_a: "pending", player_b: "pending" },
+        frames: { player_a: null, player_b: null },
+      })),
       result: null,
       abortController: null,
       timer: null,
+      slotTimers: [],
+      totalImageBytes: 0,
     };
     state.timer = setTimeout(
-      () => this.failRoom(player.roomId, state, "frame_unavailable", "A fresh outfit frame was not available. Reframe and retry."),
+      () => this.finishBurstCollection(roomId, state),
       this.collectionTimeoutMs,
     );
     state.timer.unref?.();
-    this.rooms.set(player.roomId, state);
-    this.io.to(player.roomId).emit("score-finalisation-started", {
-      battleId: player.roomId,
+    this.rooms.set(roomId, state);
+    this.io.to(roomId).emit("score-finalisation-started", {
+      battleId: roomId,
       finalisationId,
       deadlineAt,
+      burstCount: state.slots.length,
     });
-    acknowledge({ ok: true, finalisationId, locked: false });
+    for (const slot of state.slots) {
+      const timer = setTimeout(
+        () => this.requestBurstSlot(roomId, state, slot),
+        slot.offsetMs,
+      );
+      timer.unref?.();
+      state.slotTimers.push(timer);
+    }
+    return finalisationId;
   }
 
   startPerception(roomId) {
@@ -337,6 +477,34 @@ export class ScoringCoordinator {
     }
   }
 
+  requestBurstSlot(roomId, state, slot) {
+    if (this.rooms.get(roomId) !== state || state.phase !== "collecting" || slot.requested) {
+      return;
+    }
+    slot.requested = true;
+    slot.deadlineAt = Math.min(this.now() + this.burstSlotTimeoutMs, state.deadlineAt);
+    this.io.to(roomId).emit("score-frame-request", {
+      battleId: roomId,
+      finalisationId: state.finalisationId,
+      requestId: slot.requestId,
+      burstIndex: slot.burstIndex,
+      deadlineAt: slot.deadlineAt,
+    });
+    const timer = setTimeout(
+      () => this.settleBurstSlot(roomId, state, slot),
+      Math.max(0, slot.deadlineAt - this.now()),
+    );
+    timer.unref?.();
+    state.slotTimers.push(timer);
+  }
+
+  findBurstSlot(state, payload) {
+    const burstIndex = Number(payload?.burstIndex);
+    if (!Number.isInteger(burstIndex)) return null;
+    const slot = state.slots?.[burstIndex];
+    return slot?.requestId === payload?.requestId ? slot : null;
+  }
+
   submitFrame(socket, payload, acknowledge) {
     const player = this.players.get(socket.id);
     if (!player) {
@@ -344,13 +512,19 @@ export class ScoringCoordinator {
       return;
     }
     const state = this.rooms.get(player.roomId);
-    if (!state || state.phase !== "collecting" || payload?.finalisationId !== state.finalisationId) {
-      acknowledge({ ok: false, error: "This finalisation is no longer active." });
+    const slot = state?.phase === "collecting" ? this.findBurstSlot(state, payload) : null;
+    if (
+      !state
+      || state.phase !== "collecting"
+      || payload?.finalisationId !== state.finalisationId
+      || !slot?.requested
+      || slot.settled
+    ) {
+      acknowledge({ ok: false, error: "This capture request is no longer active." });
       return;
     }
-    if (this.now() > state.deadlineAt) {
-      this.failRoom(player.roomId, state, "frame_unavailable", "The outfit frames arrived too late. Please retry.");
-      acknowledge({ ok: false, error: "The frame deadline has passed." });
+    if (this.now() > slot.deadlineAt || this.now() > state.deadlineAt) {
+      acknowledge({ ok: false, error: "The capture deadline has passed." });
       return;
     }
 
@@ -370,76 +544,144 @@ export class ScoringCoordinator {
       acknowledge({ ok: false, error: "Final frame metadata is invalid." });
       return;
     }
+    if (slot.responses[player.playerRole] === "unavailable") {
+      acknowledge({ ok: false, error: "This player already declined the capture request." });
+      return;
+    }
 
-    state.frames[player.playerRole] = {
+    const previous = slot.frames[player.playerRole];
+    const nextTotal = state.totalImageBytes - (previous?.image.length ?? 0) + image.length;
+    if (nextTotal > this.maxBurstBytes) {
+      acknowledge({ ok: false, error: "Final image burst is too large." });
+      return;
+    }
+    state.totalImageBytes = nextTotal;
+    slot.frames[player.playerRole] = {
       image,
       mimeType,
       sampleId,
       capturedAtEpochMs,
       receivedAt: this.now(),
     };
+    slot.responses[player.playerRole] = "frame";
     acknowledge({ ok: true });
-    if (state.frames.player_a && state.frames.player_b) {
-      void this.comparePair(player.roomId, state);
-    }
   }
 
   reportUnavailable(socket, payload) {
     const player = this.players.get(socket.id);
     if (!player) return;
     const state = this.rooms.get(player.roomId);
-    if (!state || state.phase !== "collecting" || payload?.finalisationId !== state.finalisationId) {
+    const slot = state?.phase === "collecting" ? this.findBurstSlot(state, payload) : null;
+    if (
+      !state
+      || state.phase !== "collecting"
+      || payload?.finalisationId !== state.finalisationId
+      || !slot?.requested
+      || slot.settled
+      || slot.responses[player.playerRole] !== "pending"
+    ) {
       return;
     }
-    this.failRoom(
-      player.roomId,
-      state,
-      "frame_unavailable",
-      "One player did not have a stable outfit frame. Reframe and retry.",
-    );
+    slot.responses[player.playerRole] = "unavailable";
+    if (Object.values(slot.responses).every((response) => response !== "pending")) {
+      this.settleBurstSlot(player.roomId, state, slot);
+    }
   }
 
-  async comparePair(roomId, state) {
-    if (state.phase !== "collecting") return;
-    const playerA = state.frames.player_a;
-    const playerB = state.frames.player_b;
-    if (!playerA || !playerB) return;
-    if (Math.abs(playerA.receivedAt - playerB.receivedAt) > this.collectionTimeoutMs) {
-      this.failRoom(roomId, state, "pair_expired", "The outfit frames were not synchronised. Please retry.");
+  settleBurstSlot(roomId, state, slot) {
+    if (this.rooms.get(roomId) !== state || state.phase !== "collecting" || slot.settled) {
       return;
     }
+    slot.settled = true;
+    if (!slot.frames.player_a || !slot.frames.player_b) {
+      state.totalImageBytes -=
+        (slot.frames.player_a?.image.length ?? 0) + (slot.frames.player_b?.image.length ?? 0);
+      slot.frames = { player_a: null, player_b: null };
+    }
+    if (state.slots.every((candidate) => candidate.requested && candidate.settled)) {
+      this.finishBurstCollection(roomId, state);
+    }
+  }
 
-    clearTimeout(state.timer);
+  finishBurstCollection(roomId, state) {
+    if (this.rooms.get(roomId) !== state || state.phase !== "collecting") return;
+    for (const slot of state.slots) {
+      if (slot.settled) continue;
+      slot.settled = true;
+      if (!slot.frames.player_a || !slot.frames.player_b) {
+        state.totalImageBytes -=
+          (slot.frames.player_a?.image.length ?? 0) + (slot.frames.player_b?.image.length ?? 0);
+        slot.frames = { player_a: null, player_b: null };
+      }
+    }
+    const completePairs = state.slots
+      .filter((slot) => slot.frames.player_a && slot.frames.player_b)
+      .map((slot) => ({
+        burstIndex: slot.burstIndex,
+        playerA: slot.frames.player_a,
+        playerB: slot.frames.player_b,
+      }));
+    if (!completePairs.length) {
+      this.failRoom(
+        roomId,
+        state,
+        "frame_unavailable",
+        "Neither player produced a complete fresh frame pair. Reframe and retry.",
+      );
+      return;
+    }
+    void this.compareBurst(roomId, state, completePairs);
+  }
+
+  async compareBurst(roomId, state, completePairs) {
+    if (this.rooms.get(roomId) !== state || state.phase !== "collecting") return;
+    if (state.timer) clearTimeout(state.timer);
     state.timer = null;
+    for (const timer of state.slotTimers) clearTimeout(timer);
+    state.slotTimers = [];
     state.phase = "analysing";
     state.pairId = this.createId();
     this.io.to(roomId).emit("score-finalisation-analysing", {
       battleId: roomId,
       finalisationId: state.finalisationId,
       pairId: state.pairId,
+      sampleCount: completePairs.length,
     });
 
     const form = new FormData();
     form.set("battle_id", roomId);
     form.set("finalisation_id", state.finalisationId);
     form.set("pair_id", state.pairId);
-    form.set("player_a_sample_id", playerA.sampleId);
-    form.set("player_b_sample_id", playerB.sampleId);
-    form.set("player_a_captured_at_ms", String(playerA.capturedAtEpochMs));
-    form.set("player_b_captured_at_ms", String(playerB.capturedAtEpochMs));
-    form.set("player_a", new Blob([playerA.image], { type: playerA.mimeType }), "player-a.webp");
-    form.set("player_b", new Blob([playerB.image], { type: playerB.mimeType }), "player-b.webp");
-    state.pairedIdentity = {
+    for (const pair of completePairs) {
+      form.append("burst_index", String(pair.burstIndex));
+      form.append("player_a_sample_id", pair.playerA.sampleId);
+      form.append("player_b_sample_id", pair.playerB.sampleId);
+      form.append("player_a_captured_at_ms", String(pair.playerA.capturedAtEpochMs));
+      form.append("player_b_captured_at_ms", String(pair.playerB.capturedAtEpochMs));
+      form.append(
+        "player_a",
+        new Blob([pair.playerA.image], { type: pair.playerA.mimeType }),
+        `player-a-${pair.burstIndex}.webp`,
+      );
+      form.append(
+        "player_b",
+        new Blob([pair.playerB.image], { type: pair.playerB.mimeType }),
+        `player-b-${pair.burstIndex}.webp`,
+      );
+    }
+    state.pairedIdentity = completePairs.map((pair) => ({
+      burstIndex: pair.burstIndex,
       playerA: {
-        sampleId: playerA.sampleId,
-        capturedAtEpochMs: playerA.capturedAtEpochMs,
+        sampleId: pair.playerA.sampleId,
+        capturedAtEpochMs: pair.playerA.capturedAtEpochMs,
       },
       playerB: {
-        sampleId: playerB.sampleId,
-        capturedAtEpochMs: playerB.capturedAtEpochMs,
+        sampleId: pair.playerB.sampleId,
+        capturedAtEpochMs: pair.playerB.capturedAtEpochMs,
       },
-    };
-    state.frames = { player_a: null, player_b: null };
+    }));
+    state.slots = [];
+    state.totalImageBytes = 0;
 
     const abortController = new AbortController();
     state.abortController = abortController;
@@ -459,12 +701,20 @@ export class ScoringCoordinator {
         return;
       }
       const result = await response.json();
+      const identitiesMatch = Array.isArray(result?.samplePairs)
+        && result.samplePairs.length === state.pairedIdentity.length
+        && result.samplePairs.every((sample, index) => {
+          const expected = state.pairedIdentity[index];
+          return sample.burstIndex === expected.burstIndex
+            && sample.playerASampleId === expected.playerA.sampleId
+            && sample.playerBSampleId === expected.playerB.sampleId;
+        });
       if (
         !["final", "not_scoreable"].includes(result?.phase)
-        ||
-        result?.battleId !== roomId
+        || result?.battleId !== roomId
         || result?.finalisationId !== state.finalisationId
         || result?.pairId !== state.pairId
+        || !identitiesMatch
       ) {
         this.failRoom(roomId, state, "provider_invalid_response", "Final scoring returned mismatched result identity. Please retry.");
         return;
@@ -506,6 +756,7 @@ export class ScoringCoordinator {
     const state = this.rooms.get(roomId);
     if (state) this.disposeState(state);
     this.rooms.delete(roomId);
+    this.readinessRooms.delete(roomId);
     this.stopPerception(roomId);
   }
 
@@ -523,8 +774,14 @@ export class ScoringCoordinator {
   disposeState(state) {
     if (state.timer) clearTimeout(state.timer);
     state.timer = null;
+    for (const timer of state.slotTimers ?? []) clearTimeout(timer);
+    state.slotTimers = [];
     state.abortController?.abort();
     state.abortController = null;
-    state.frames = { player_a: null, player_b: null };
+    for (const slot of state.slots ?? []) {
+      slot.frames = { player_a: null, player_b: null };
+    }
+    state.slots = [];
+    if (state.frames) state.frames = { player_a: null, player_b: null };
   }
 }
