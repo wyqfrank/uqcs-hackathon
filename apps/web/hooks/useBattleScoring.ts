@@ -310,6 +310,17 @@ export function useBattleScoring(
       );
     };
 
+    const onRematch = (event: { battleId: string }) => {
+      if (event.battleId !== roomId) return;
+      stopCountdown();
+      activeFinalisationRef.current = null;
+      submittedRequestsRef.current.clear();
+      setRequestError(null);
+      setProvisionalScores(null);
+      setState({ phase: "waiting_ready", ...readinessRef.current });
+    };
+
+    socket.on("score-rematch", onRematch);
     socket.on("score-readiness-updated", onReadiness);
     socket.on("score-round-started", onRoundStarted);
     socket.on("score-round-cancelled", onRoundCancelled);
@@ -320,6 +331,7 @@ export function useBattleScoring(
     return () => {
       active = false;
       stopCountdown();
+      socket.off("score-rematch", onRematch);
       socket.off("score-readiness-updated", onReadiness);
       socket.off("score-round-started", onRoundStarted);
       socket.off("score-round-cancelled", onRoundCancelled);
@@ -345,11 +357,28 @@ export function useBattleScoring(
     );
   }, [socket, state.phase]);
 
+  const rematch = useCallback(() => {
+    // Only from a settled battle: mid-round the server refuses anyway, and the
+    // control is hidden, but a stale click should not clear the other player's
+    // result.
+    if (!socket || !["final", "not_scoreable"].includes(state.phase)) return;
+    setRequestError(null);
+    socket.emit(
+      "score-rematch",
+      {},
+      (acknowledgement: FinaliseAcknowledgement) => {
+        if (!acknowledgement.ok) setRequestError(acknowledgement.error);
+      },
+    );
+  }, [socket, state.phase]);
+
   return {
     state,
     provisionalScores,
     requestError,
     finalise,
+    rematch,
+    canRematch: ["final", "not_scoreable"].includes(state.phase),
     isBusy: state.phase === "collecting" || state.phase === "analysing",
     isLocked: state.phase === "final",
   };

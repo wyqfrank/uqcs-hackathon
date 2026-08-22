@@ -20,6 +20,12 @@ Score these dimensions from 0 to 100:
 - body_fit: how the garments visibly sit and align, without judging the person's body.
 - vlm_holistic: an overall outfit judgement for diagnostics only.
 
+Whenever frame_quality is ok or poor, return all four numeric scores for that player.
+Most frames show only the upper body: score body_fit from the garments you can actually see,
+such as shoulder line, sleeve length, neckline and how the fabric drapes, and do not withhold
+the score because the full body is out of frame. Omit the numeric scores only when
+frame_quality is unusable, in which case omit all four.
+
 Do not assess faces, attractiveness, body type, perceived gender, wealth, brand prestige,
 popularity, or background. Use image quality only to decide whether clothing can be judged.
 Never invent hidden garment details. Keep observations short and grounded in visible clothing.
@@ -36,6 +42,29 @@ outfit per player across the complete sequence; do not score individual frames s
 }
 
 VlmImage = tuple[bytes, str]
+
+# Scores are optional on the model so the unusable case can carry nulls, which
+# makes them optional in the generated JSON schema too. Gemini follows that
+# schema over any prose, so it simply omitted body_fit and every assessment
+# failed validation. Requiring the keys forces an explicit value — a number, or
+# null for unusable imagery — instead of silent omission.
+PLAYER_REQUIRED_FIELDS = (
+    "frame_quality",
+    "component_quality",
+    "outfit_coordination",
+    "body_fit",
+    "vlm_holistic",
+)
+
+
+def assessment_response_schema() -> dict:
+    """The assessment schema with every scored field required, for the provider."""
+    schema = VlmAssessment.model_json_schema()
+    player = schema.get("$defs", {}).get("VlmPlayerAssessment")
+    if player is not None:
+        present = [name for name in PLAYER_REQUIRED_FIELDS if name in player.get("properties", {})]
+        player["required"] = present
+    return schema
 
 
 class VlmPlayerAssessment(BaseModel):
@@ -90,6 +119,14 @@ class VlmProviderRetryableError(VlmProviderError):
 
 class VlmProviderTimeoutError(VlmProviderError):
     """The provider did not complete within the configured deadline."""
+
+
+class VlmProviderQuotaError(VlmProviderError):
+    """The provider rejected the request because the quota is exhausted.
+
+    Distinct from a retryable outage: an immediate retry is guaranteed to fail
+    too, and the operator has to wait for a reset or raise their limit.
+    """
 
 
 class VlmProviderRefusalError(VlmProviderError):
@@ -191,7 +228,7 @@ class GeminiVlmProvider:
                 response_format={
                     "type": "text",
                     "mime_type": "application/json",
-                    "schema": VlmAssessment.model_json_schema(),
+                    "schema": assessment_response_schema(),
                 },
                 store=False,
                 timeout=self._timeout_seconds,
@@ -201,6 +238,15 @@ class GeminiVlmProvider:
         except Exception as error:
             status_code = getattr(error, "status_code", None) or getattr(error, "code", None)
             if status_code in {429, 500, 502, 503, 504}:
+                # Log the provider's own words: rate limiting, quota exhaustion
+                # and a genuine outage all arrive here and need very different
+                # responses from whoever is running the demo.
+                logger.warning("Gemini reported %s: %s", status_code, str(error)[:500])
+                if status_code == 429:
+                    raise VlmProviderQuotaError(
+                        "The scoring quota is exhausted. Retrying will not help until "
+                        "it resets or billing is raised."
+                    ) from error
                 raise VlmProviderRetryableError("Gemini is temporarily unavailable.") from error
             if status_code == 408 or "timeout" in type(error).__name__.lower():
                 raise VlmProviderTimeoutError("Gemini request timed out.") from error

@@ -1335,3 +1335,8 @@ kbd {
   color: var(--ko);
   border-color: var(--ko-dark);
 }
+
+/* Rematch appears only once a battle has settled, so it is styled to draw the
+   eye the way the finalise control does during a round. */
+.control-dock .rematch-control { color: var(--p2); }
+.control-dock .rematch-control:hover { color: var(--p2-light); background: rgba(182, 255, 31, .08); }

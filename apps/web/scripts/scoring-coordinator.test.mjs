@@ -701,3 +701,32 @@ test("Safari's PNG fallback is accepted rather than rejected", async () => {
   assert.equal(ack.ok, true);
   assert.equal(slot.responses.player_a, "frame");
 });
+
+test("a rematch clears a settled battle and starts the next round", async () => {
+  const { coordinator, io, host, guest } = setup(async () => ({ ok: true, json: async () => ({}) }));
+  const { state } = await startFinalisation(coordinator, host, guest);
+  state.phase = "final";
+  state.result = { phase: "final" };
+
+  let ack = null;
+  coordinator.requestRematch(host, (value) => { ack = value; });
+
+  assert.equal(ack.ok, true);
+  assert.equal(io.events.some((event) => event.name === "score-rematch"), true);
+  // Both players stayed ready, so the next round begins without re-arming.
+  assert.equal(coordinator.rooms.get("FIT-1234")?.phase, "countdown");
+});
+
+test("a rematch is refused while a battle is still being scored", async () => {
+  const { coordinator, host, guest } = setup(async () => ({ ok: true, json: async () => ({}) }));
+  const { state } = await startFinalisation(coordinator, host, guest);
+  state.phase = "collecting";
+
+  let ack = null;
+  coordinator.requestRematch(host, (value) => { ack = value; });
+
+  assert.equal(ack.ok, false);
+  assert.match(ack.error, /current score/);
+  // The in-flight battle must survive a stray click from either player.
+  assert.equal(coordinator.rooms.get("FIT-1234"), state);
+});

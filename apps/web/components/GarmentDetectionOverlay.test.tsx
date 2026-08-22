@@ -30,7 +30,10 @@ describe("GarmentDetectionOverlay", () => {
     expect(Number(rectangle![2])).toBeCloseTo(150);
     expect(Number(rectangle![3])).toBeCloseTo(100);
     expect(Number(rectangle![4])).toBeCloseTo(200);
-    expect(markup).toContain("TOP 91");
+    expect(markup).toContain("TOP");
+    // Confidence is a diagnostic, not something a player should read off their
+    // own outfit mid-battle.
+    expect(markup).not.toContain("91");
   });
 
   it("renders nothing when no garment boxes were detected", () => {

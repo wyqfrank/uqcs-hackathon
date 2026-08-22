@@ -166,6 +166,9 @@ export class ScoringCoordinator {
     socket.on("score-finalise", (_payload, acknowledge = () => {}) => {
       this.requestFinalisation(socket, acknowledge);
     });
+    socket.on("score-rematch", (_payload, acknowledge = () => {}) => {
+      this.requestRematch(socket, acknowledge);
+    });
     socket.on("score-frame", (payload, acknowledge = () => {}) => {
       this.submitFrame(socket, payload, acknowledge);
     });
@@ -294,6 +297,49 @@ export class ScoringCoordinator {
     if (readiness.player_a && readiness.player_b && !state) {
       this.startRound(player.roomId);
     }
+  }
+
+  /**
+   * Clears a settled battle so the same two players can go again without
+   * leaving the room. Either player may ask; the reset is broadcast so both
+   * leave the locked result together.
+   */
+  requestRematch(socket, acknowledge) {
+    const player = this.players.get(socket.id);
+    if (!player) {
+      acknowledge({ ok: false, error: "Join a battle before asking for a rematch." });
+      return;
+    }
+    const roomId = player.roomId;
+    const state = this.rooms.get(roomId);
+    // Only once the current battle has settled. Otherwise this would cancel a
+    // capture or an assessment the other player is still waiting on.
+    if (state && !["final", "failed"].includes(state.phase)) {
+      acknowledge({ ok: false, error: "Wait for the current score to finish first." });
+      return;
+    }
+    if (state) {
+      this.disposeState(state);
+      this.rooms.delete(roomId);
+    }
+
+    const readiness = this.ensureReadiness(roomId);
+    this.io.to(roomId).emit("score-rematch", { battleId: roomId });
+    this.io.to(roomId).emit("score-readiness-updated", {
+      battleId: roomId,
+      playerAReady: readiness.player_a,
+      playerBReady: readiness.player_b,
+    });
+    acknowledge({ ok: true });
+
+    const occupants = [...this.players.values()].filter(
+      ({ roomId: assigned }) => assigned === roomId,
+    ).length;
+    if (occupants < 2) return;
+    // Readiness survives the reset, so a rematch between two players who are
+    // still framed and connected starts the next round immediately.
+    if (readiness.player_a && readiness.player_b) this.startRound(roomId);
+    else this.startPerception(roomId);
   }
 
   roundPayload(roomId, state) {

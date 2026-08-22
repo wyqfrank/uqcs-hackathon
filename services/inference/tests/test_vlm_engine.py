@@ -21,6 +21,7 @@ from fitted_inference.vlm import (
     VlmPairAssessment,
     VlmPlayerAssessment,
     VlmProviderInvalidResponseError,
+    VlmProviderQuotaError,
     VlmProviderRefusalError,
     VlmProviderRetryableError,
     VlmProviderTimeoutError,
@@ -362,3 +363,71 @@ async def test_gemini_adapter_labels_inline_images_and_requests_strict_schema() 
     assert request["response_format"]["mime_type"] == "application/json"
     assert request["store"] is False
     assert "faces" in request["system_instruction"]
+
+
+def test_prompt_states_the_all_or_nothing_score_contract() -> None:
+    """
+    The schema rejects a judgeable player missing any numeric score, so the
+    prompt has to say so. Gemini omitted body_fit from an upper-body crop and
+    every battle failed validation.
+    """
+    from fitted_inference.vlm import VLM_PROMPTS
+
+    for version, prompt in VLM_PROMPTS.items():
+        assert "all four numeric scores" in prompt, version
+        assert "body_fit" in prompt, version
+        # It must also say when omission is allowed, or the model may omit all.
+        assert "unusable" in prompt, version
+
+
+def test_provider_schema_requires_every_scored_field() -> None:
+    """
+    Gemini follows the JSON schema over the prompt. With the scores optional it
+    omitted body_fit, and the validator — which demands all four for a
+    judgeable player — rejected every assessment.
+    """
+    from fitted_inference.vlm import assessment_response_schema
+
+    player = assessment_response_schema()["$defs"]["VlmPlayerAssessment"]
+    assert set(player["required"]) == {
+        "frame_quality",
+        "component_quality",
+        "outfit_coordination",
+        "body_fit",
+        "vlm_holistic",
+    }
+
+
+def test_provider_schema_still_permits_null_scores_for_unusable_imagery() -> None:
+    from fitted_inference.vlm import assessment_response_schema
+
+    player = assessment_response_schema()["$defs"]["VlmPlayerAssessment"]
+    body_fit = player["properties"]["body_fit"]
+    # Required means "must be present", not "must be a number": an unusable
+    # player still has to be able to report nulls.
+    assert {"type": "null"} in body_fit["anyOf"]
+
+
+@pytest.mark.anyio
+async def test_quota_exhaustion_surfaces_at_once_without_a_second_attempt() -> None:
+    """
+    A 429 means the allowance is gone; retrying burns another request and fails
+    the same way. It must surface immediately, and say quota rather than reading
+    as a transient outage.
+    """
+
+    class QuotaProvider:
+        model_version = "fake-vlm"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def assess(self, **_kwargs) -> VlmAssessment:
+            self.calls += 1
+            raise VlmProviderQuotaError("The scoring quota is exhausted.")
+
+    provider = QuotaProvider()
+    engine = InferenceEngine(provider=provider)
+    with pytest.raises(InferenceUnavailableError, match="quota is exhausted"):
+        await engine._assess_with_retry([], [])
+    assert provider.calls == 1
