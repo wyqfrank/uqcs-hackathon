@@ -184,6 +184,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--acid); outl
 .battle-result span { color: #77777d; font-size: .55rem; letter-spacing: .18em; }
 .battle-result span i { color: var(--acid); font-style: normal; margin: 0 5px; }
 .battle-result strong { font-family: Impact, Haettenschweiler, sans-serif; font-size: clamp(1.7rem, 3vw, 2.6rem); letter-spacing: .05em; margin-top: 4px; }
+.battle-result p { max-width: 720px; margin: 8px auto 0; color: #919197; font-size: .72rem; line-height: 1.45; }
+.result-breakdown { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; }
+.result-breakdown span { color: #b9b9bd; font-size: .5rem; letter-spacing: .11em; }
 .battle-result.pending strong { color: #5c5c61; font-family: Arial, sans-serif; font-size: .65rem; letter-spacing: .16em; }
 .battle-result.winner strong { color: var(--acid); text-shadow: 0 0 30px rgba(215,255,56,.3); }
 .battle-result.loser strong { color: #f4f4ef; }

@@ -24,6 +24,7 @@ export function useWebRTC(
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>("waiting");
   const [error, setError] = useState<string | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -33,6 +34,7 @@ export function useWebRTC(
 
     const socket = createSignalingSocket();
     socketRef.current = socket;
+    setSocket(socket);
     let active = true;
 
     const closePeer = () => {
@@ -136,8 +138,9 @@ export function useWebRTC(
       socket.disconnect();
       closePeer();
       socketRef.current = null;
+      setSocket(null);
     };
   }, [localStream, role, roomId]);
 
-  return { remoteStream, connectionState, error };
+  return { remoteStream, connectionState, error, socket };
 }

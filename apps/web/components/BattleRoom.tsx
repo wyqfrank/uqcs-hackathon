@@ -3,10 +3,11 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, CameraOff, Copy, LogOut, Snowflake } from "lucide-react";
+import { useBattleScoring } from "@/hooks/useBattleScoring";
 import { useCamera } from "@/hooks/useCamera";
-import { useInference } from "@/hooks/useInference";
 import { useOutfitDetection } from "@/hooks/useOutfitDetection";
 import { useWebRTC } from "@/hooks/useWebRTC";
+import { scoresForRole } from "@/lib/scoring";
 import type { RoomRole } from "@/lib/signaling";
 import { BattleResult } from "./BattleResult";
 import { ConnectionStatus } from "./ConnectionStatus";
@@ -17,13 +18,21 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
   const router = useRouter();
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const [frozen, setFrozen] = useState(false);
   const [copied, setCopied] = useState(false);
   const camera = useCamera(true);
   const rtc = useWebRTC(roomId, role, camera.stream);
-  const localInference = useInference(localVideoRef, Boolean(camera.stream), frozen);
-  const remoteInference = useInference(remoteVideoRef, Boolean(rtc.remoteStream), frozen);
   const outfitDetection = useOutfitDetection(localVideoRef, Boolean(camera.stream));
+  const scoring = useBattleScoring(roomId, rtc.socket, outfitDetection);
+  const finalResult = scoring.state.phase === "final" ? scoring.state.result : null;
+  const displayedScores = finalResult ? scoresForRole(finalResult, role) : null;
+  const localScore = displayedScores?.localScore ?? null;
+  const remoteScore = displayedScores?.remoteScore ?? null;
+  const scoreError = scoring.requestError
+    || (scoring.state.phase === "not_scoreable" ? scoring.state.result.message : null);
+  const canFinalise =
+    rtc.connectionState === "connected"
+    && !scoring.isBusy
+    && !scoring.isLocked;
 
   const copyRoomCode = async () => {
     await navigator.clipboard.writeText(roomId);
@@ -47,8 +56,11 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
         </Button>
       </nav>
 
-      {(camera.error || rtc.error) && (
-        <div className="error-banner"><b>{camera.error ? "CAMERA UNAVAILABLE" : "SIGNAL LOST"}</b><span>{camera.error || rtc.error}</span></div>
+      {(camera.error || rtc.error || scoreError) && (
+        <div className="error-banner">
+          <b>{camera.error ? "CAMERA UNAVAILABLE" : rtc.error ? "SIGNAL LOST" : "FINAL RESULT UNAVAILABLE"}</b>
+          <span>{camera.error || rtc.error || scoreError}</span>
+        </div>
       )}
 
       <section className="arena">
@@ -62,7 +74,7 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
           <PlayerCard
             label="YOU" number={role === "host" ? "01" : "02"}
             stream={camera.stream} videoRef={localVideoRef} muted
-            score={localInference.score} analysing={localInference.isAnalysing}
+            score={localScore} analysing={scoring.isBusy}
             waitingText={camera.status === "requesting" ? "OPENING CAMERA" : "CAMERA OFF"}
             detection={{ state: outfitDetection.detectorState, result: outfitDetection.result }}
           />
@@ -70,20 +82,38 @@ export function BattleRoom({ roomId, role }: { roomId: string; role: RoomRole })
           <PlayerCard
             label="THEM" number={role === "host" ? "02" : "01"}
             stream={rtc.remoteStream} videoRef={remoteVideoRef} muted={false}
-            score={remoteInference.score} analysing={remoteInference.isAnalysing}
+            score={remoteScore} analysing={scoring.isBusy}
             waitingText={rtc.connectionState === "connecting" ? "CONNECTING" : "WAITING FOR OPPONENT"}
           />
         </div>
 
-        <BattleResult localScore={localInference.score} remoteScore={remoteInference.score} role={role} />
+        <BattleResult state={scoring.state} role={role} />
       </section>
 
       <div className="control-dock">
         <Button variant="bare" size="bare" aria-label={camera.stream ? "Stop camera" : "Start camera"} onClick={camera.stream ? camera.stopCamera : () => void camera.startCamera()}>
           {camera.stream ? <CameraOff aria-hidden="true" /> : <Camera aria-hidden="true" />}<span>{camera.stream ? "STOP CAMERA" : "START CAMERA"}</span>
         </Button>
-        <Button variant="bare" size="bare" aria-label={frozen ? "Resume score" : "Freeze score"} className={frozen ? "is-active" : ""} onClick={() => setFrozen((value) => !value)}>
-          <Snowflake aria-hidden="true" /><span>{frozen ? "RESUME SCORE" : "FREEZE SCORE"}</span>
+        <Button
+          variant="bare"
+          size="bare"
+          aria-label={scoring.isLocked ? "Final score locked" : "Finalise score"}
+          className={scoring.isBusy || scoring.isLocked ? "is-active" : ""}
+          disabled={!canFinalise}
+          onClick={scoring.finalise}
+        >
+          <Snowflake aria-hidden="true" />
+          <span>
+            {scoring.state.phase === "collecting"
+              ? "CAPTURING FITS"
+              : scoring.state.phase === "analysing"
+                ? "ANALYSING"
+                : scoring.state.phase === "final"
+                  ? "SCORE FINAL"
+                  : scoring.state.phase === "not_scoreable"
+                    ? "RETRY SCORE"
+                    : "FINALISE SCORE"}
+          </span>
         </Button>
         <Button variant="bare" size="bare" aria-label="Copy room code" onClick={() => void copyRoomCode()}><Copy aria-hidden="true" /><span>{copied ? "COPIED" : "COPY CODE"}</span></Button>
         <Button variant="bare" size="bare" className="leave-control" onClick={leave}><LogOut aria-hidden="true" /><span>LEAVE</span></Button>

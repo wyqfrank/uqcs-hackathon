@@ -1,32 +1,84 @@
-export type FittedResult = {
-  score: number;
-  confidence?: number;
+export type PlayerScoreBreakdown = {
+  componentQuality: number;
+  outfitCoordination: number;
+  bodyFit: number;
+  vlmHolistic: number | null;
+  observations: string[];
 };
 
-export async function inferFrame(frame: Blob): Promise<FittedResult> {
-  // Replace this function body with the real model/API call. The frame is already
-  // resized and encoded, and the inference loop provides backpressure.
-  await new Promise((resolve) => setTimeout(resolve, 70 + Math.random() * 90));
-  const sizeVariation = (frame.size % 17) / 17;
-  return {
-    score: 68 + sizeVariation * 18 + (Math.random() - 0.5) * 6,
-    confidence: 0.91,
+export type FinalScoreResult = {
+  phase: "final";
+  battleId: string;
+  finalisationId: string;
+  pairId: string;
+  playerASampleId: string;
+  playerBSampleId: string;
+  playerACapturedAtMs: number;
+  playerBCapturedAtMs: number;
+  modelVersion: string;
+  promptVersion: string;
+  scoringVersion: string;
+  playerAScore: number;
+  playerBScore: number;
+  winner: "player_a" | "player_b" | "draw";
+  winProbability: null;
+  breakdown: {
+    playerA: PlayerScoreBreakdown;
+    playerB: PlayerScoreBreakdown;
   };
+  frameQuality: {
+    playerA: "ok" | "poor" | "unusable";
+    playerB: "ok" | "poor" | "unusable";
+  };
+  explanation: string;
+  latencyMs: number;
+};
+
+export type NotScoreableResult = {
+  phase: "not_scoreable";
+  intendedPhase: "final";
+  battleId: string;
+  finalisationId: string;
+  pairId: string | null;
+  playerASampleId: string | null;
+  playerBSampleId: string | null;
+  playerACapturedAtMs: number | null;
+  playerBCapturedAtMs: number | null;
+  reasonCode: string;
+  message: string;
+  retryable: boolean;
+  modelVersion: string | null;
+  promptVersion: string | null;
+  latencyMs: number;
+};
+
+export type ScoreResult = FinalScoreResult | NotScoreableResult;
+
+export type BattleScoringState =
+  | { phase: "ready" }
+  | { phase: "collecting"; finalisationId: string }
+  | { phase: "analysing"; finalisationId: string }
+  | { phase: "final"; result: FinalScoreResult }
+  | { phase: "not_scoreable"; result: NotScoreableResult };
+
+export function scoresForRole(result: FinalScoreResult, role: "host" | "guest") {
+  return role === "host"
+    ? { localScore: result.playerAScore, remoteScore: result.playerBScore }
+    : { localScore: result.playerBScore, remoteScore: result.playerAScore };
 }
 
-export function smoothScore(
-  previousScore: number | null,
-  latestScore: number,
-  alpha = 0.2,
-): number {
-  if (previousScore === null) return latestScore;
-  return alpha * latestScore + (1 - alpha) * previousScore;
+export function localPlayerWon(result: FinalScoreResult, role: "host" | "guest") {
+  return (
+    (result.winner === "player_a" && role === "host")
+    || (result.winner === "player_b" && role === "guest")
+  );
 }
 
-export function determineWinner(
-  player1Score: number,
-  player2Score: number,
-): "player1" | "player2" | "draw" {
-  if (Math.abs(player1Score - player2Score) < 2) return "draw";
-  return player1Score > player2Score ? "player1" : "player2";
+export function isCurrentScoreResult(
+  result: ScoreResult,
+  roomId: string,
+  activeFinalisationId: string | null,
+) {
+  return result.battleId === roomId
+    && (!activeFinalisationId || result.finalisationId === activeFinalisationId);
 }
