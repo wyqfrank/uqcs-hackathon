@@ -26,5 +26,5 @@ run(virtualEnvironmentPython, [
   "pip",
   "install",
   "-e",
-  "services/inference[dev]",
+  "services/inference[dev,vlm]",
 ]);

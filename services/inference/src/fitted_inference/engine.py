@@ -1,30 +1,303 @@
+"""Online paired-image scoring engine."""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import time
 from dataclasses import dataclass
 
 from .config import Settings
-from .schemas import ComparisonResponse
+from .schemas import (
+    Breakdown,
+    ComparisonResponse,
+    FinalComparisonResponse,
+    FrameQuality,
+    NotScoreableResponse,
+    PlayerBreakdown,
+)
+from .scoring import visual_fit_score
+from .vlm import (
+    VLM_PROMPTS,
+    GeminiVlmProvider,
+    VlmAssessment,
+    VlmProvider,
+    VlmProviderError,
+    VlmProviderInvalidResponseError,
+    VlmProviderRefusalError,
+    VlmProviderRetryableError,
+    VlmProviderTimeoutError,
+)
+
+MAX_IMAGE_PIXELS = 16_000_000
+DRAW_THRESHOLD = 2.0
+SCORING_VERSION = "visual-45-30-25-v1"
 
 
 class ModelNotReadyError(RuntimeError):
     """Raised when comparison is requested before a model is configured."""
 
 
+class InvalidComparisonImageError(ValueError):
+    """Raised when uploaded bytes are not a safe, decodable image."""
+
+
+class InferenceTimeoutError(RuntimeError):
+    """Raised when the configured VLM times out after its final retry."""
+
+
+class InferenceUnavailableError(RuntimeError):
+    """Raised when the configured provider cannot complete the comparison."""
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonContext:
+    battle_id: str
+    finalisation_id: str
+    pair_id: str
+    player_a_sample_id: str
+    player_b_sample_id: str
+    player_a_captured_at_ms: float
+    player_b_captured_at_ms: float
+
+    def response_fields(self) -> dict[str, str | float]:
+        return {
+            "battle_id": self.battle_id,
+            "finalisation_id": self.finalisation_id,
+            "pair_id": self.pair_id,
+            "player_a_sample_id": self.player_a_sample_id,
+            "player_b_sample_id": self.player_b_sample_id,
+            "player_a_captured_at_ms": self.player_a_captured_at_ms,
+            "player_b_captured_at_ms": self.player_b_captured_at_ms,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonImage:
+    contents: bytes
+    mime_type: str
+
+
+def validate_comparison_image(image: ComparisonImage) -> None:
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except ImportError as error:
+        raise ModelNotReadyError(
+            "VLM scoring requires the inference package's 'vlm' extra."
+        ) from error
+
+    try:
+        with Image.open(io.BytesIO(image.contents)) as decoded:
+            actual_format = decoded.format
+            decoded.verify()
+        with Image.open(io.BytesIO(image.contents)) as decoded:
+            width, height = decoded.size
+    except (UnidentifiedImageError, OSError, ValueError) as error:
+        raise InvalidComparisonImageError("Image could not be decoded.") from error
+    if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+        raise InvalidComparisonImageError("Image dimensions exceed the configured limit.")
+    expected_mime_type = {
+        "JPEG": "image/jpeg",
+        "PNG": "image/png",
+        "WEBP": "image/webp",
+    }.get(actual_format or "")
+    if expected_mime_type != image.mime_type:
+        raise InvalidComparisonImageError("Image MIME type does not match its content.")
+
+
 @dataclass(slots=True)
 class InferenceEngine:
-    """Stable service boundary for the future model implementation."""
+    provider: VlmProvider | None = None
+    prompt_version: str = "v1"
 
-    model_version: str = "unconfigured"
-    ready: bool = False
+    @property
+    def ready(self) -> bool:
+        return self.provider is not None
 
-    async def compare(self, player_a: bytes, player_b: bytes) -> ComparisonResponse:
-        del player_a, player_b
-        raise ModelNotReadyError(
-            "No inference model is configured. Set FITTED_MODEL_PATH and provide an engine."
+    @property
+    def model_version(self) -> str:
+        return self.provider.model_version if self.provider else "unconfigured"
+
+    async def compare(
+        self,
+        context: ComparisonContext,
+        player_a: ComparisonImage,
+        player_b: ComparisonImage,
+    ) -> ComparisonResponse:
+        if not self.provider:
+            raise ModelNotReadyError(
+                "No inference model is configured. Set GEMINI_API_KEY and "
+                "FITTED_SCORING_BACKEND=vlm_fallback."
+            )
+
+        validate_comparison_image(player_a)
+        validate_comparison_image(player_b)
+        started_at = time.perf_counter()
+        try:
+            assessment = await self._assess_with_retry(player_a, player_b)
+        except VlmProviderRefusalError:
+            return self._provider_not_scoreable(
+                context,
+                "provider_refusal",
+                "The final assessor could not evaluate this pair. Retry with clearer framing.",
+                started_at,
+            )
+        except VlmProviderInvalidResponseError:
+            return self._provider_not_scoreable(
+                context,
+                "provider_invalid_response",
+                "The final assessor returned an invalid result. Please retry.",
+                started_at,
+            )
+        latency_ms = round((time.perf_counter() - started_at) * 1000)
+        return self._build_response(context, assessment, latency_ms)
+
+    async def _assess_with_retry(
+        self,
+        player_a: ComparisonImage,
+        player_b: ComparisonImage,
+    ) -> VlmAssessment:
+        assert self.provider is not None
+        for attempt in range(2):
+            try:
+                return await self.provider.assess(
+                    player_a=player_a.contents,
+                    player_a_mime_type=player_a.mime_type,
+                    player_b=player_b.contents,
+                    player_b_mime_type=player_b.mime_type,
+                )
+            except VlmProviderRetryableError as error:
+                if attempt == 1:
+                    raise InferenceUnavailableError(str(error)) from error
+                await asyncio.sleep(0.25)
+            except VlmProviderTimeoutError as error:
+                raise InferenceTimeoutError(str(error)) from error
+            except (VlmProviderRefusalError, VlmProviderInvalidResponseError):
+                raise
+            except VlmProviderError as error:
+                raise InferenceUnavailableError(str(error)) from error
+        raise AssertionError("Retry loop must return or raise.")
+
+    def _provider_not_scoreable(
+        self,
+        context: ComparisonContext,
+        reason_code: str,
+        message: str,
+        started_at: float,
+    ) -> NotScoreableResponse:
+        return NotScoreableResponse(
+            **context.response_fields(),
+            reason_code=reason_code,
+            message=message,
+            retryable=True,
+            model_version=self.model_version,
+            prompt_version=self.prompt_version,
+            latency_ms=round((time.perf_counter() - started_at) * 1000),
+        )
+
+    def _build_response(
+        self,
+        context: ComparisonContext,
+        assessment: VlmAssessment,
+        latency_ms: int,
+    ) -> ComparisonResponse:
+        identity = context.response_fields()
+        if (
+            assessment.player_a.frame_quality == "unusable"
+            or assessment.player_b.frame_quality == "unusable"
+        ):
+            return NotScoreableResponse(
+                **identity,
+                reason_code="unusable_image",
+                message="One or both outfits were not visible enough to judge. Reframe and retry.",
+                retryable=True,
+                model_version=self.model_version,
+                prompt_version=self.prompt_version,
+                latency_ms=latency_ms,
+            )
+        if assessment.pair.preference == "cannot_judge":
+            return NotScoreableResponse(
+                **identity,
+                reason_code="cannot_judge",
+                message="The outfits could not be compared fairly. Reframe and retry.",
+                retryable=True,
+                model_version=self.model_version,
+                prompt_version=self.prompt_version,
+                latency_ms=latency_ms,
+            )
+
+        player_a = assessment.player_a
+        player_b = assessment.player_b
+        assert player_a.component_quality is not None
+        assert player_a.outfit_coordination is not None
+        assert player_a.body_fit is not None
+        assert player_b.component_quality is not None
+        assert player_b.outfit_coordination is not None
+        assert player_b.body_fit is not None
+        player_a_score = visual_fit_score(
+            component_quality=player_a.component_quality,
+            outfit_coordination=player_a.outfit_coordination,
+            body_fit=player_a.body_fit,
+        )
+        player_b_score = visual_fit_score(
+            component_quality=player_b.component_quality,
+            outfit_coordination=player_b.outfit_coordination,
+            body_fit=player_b.body_fit,
+        )
+        difference = player_a_score - player_b_score
+        winner = (
+            "draw"
+            if abs(difference) < DRAW_THRESHOLD
+            else "player_a" if difference > 0 else "player_b"
+        )
+
+        return FinalComparisonResponse(
+            **identity,
+            model_version=self.model_version,
+            prompt_version=self.prompt_version,
+            scoring_version=SCORING_VERSION,
+            player_a_score=player_a_score,
+            player_b_score=player_b_score,
+            winner=winner,
+            win_probability=None,
+            breakdown=Breakdown(
+                player_a=PlayerBreakdown(
+                    component_quality=player_a.component_quality,
+                    outfit_coordination=player_a.outfit_coordination,
+                    body_fit=player_a.body_fit,
+                    vlm_holistic=player_a.vlm_holistic,
+                    observations=player_a.observations,
+                ),
+                player_b=PlayerBreakdown(
+                    component_quality=player_b.component_quality,
+                    outfit_coordination=player_b.outfit_coordination,
+                    body_fit=player_b.body_fit,
+                    vlm_holistic=player_b.vlm_holistic,
+                    observations=player_b.observations,
+                ),
+            ),
+            frame_quality=FrameQuality(
+                player_a=player_a.frame_quality,
+                player_b=player_b.frame_quality,
+            ),
+            explanation=assessment.pair.explanation,
+            latency_ms=latency_ms,
         )
 
 
 def create_engine(settings: Settings) -> InferenceEngine:
-    # Loading belongs here so a production engine is created once at startup,
-    # rather than once per request. The scaffold stays explicitly unready until
-    # the evaluated model implementation is connected.
-    del settings
-    return InferenceEngine()
+    prompt = VLM_PROMPTS.get(settings.vlm_prompt_version)
+    if (
+        settings.scoring_backend != "vlm_fallback"
+        or not settings.gemini_api_key
+        or prompt is None
+    ):
+        return InferenceEngine(prompt_version=settings.vlm_prompt_version)
+    provider = GeminiVlmProvider(
+        api_key=settings.gemini_api_key,
+        model=settings.vlm_model,
+        prompt=prompt,
+        media_resolution=settings.vlm_media_resolution,
+        timeout_seconds=settings.vlm_timeout_seconds,
+    )
+    return InferenceEngine(provider=provider, prompt_version=settings.vlm_prompt_version)
