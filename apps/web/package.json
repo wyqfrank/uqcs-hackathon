@@ -7,8 +7,9 @@
     "dev": "node server.mjs",
     "build": "next build",
     "start": "cross-env NODE_ENV=production node server.mjs",
-    "test:unit": "vitest run",
+    "test:unit": "vitest run --exclude scripts/**",
     "test:signaling": "node scripts/signaling-smoke.mjs",
+    "test:scoring-coordinator": "node --test scripts/scoring-coordinator.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
