@@ -20,6 +20,12 @@ Score these dimensions from 0 to 100:
 - body_fit: how the garments visibly sit and align, without judging the person's body.
 - vlm_holistic: an overall outfit judgement for diagnostics only.
 
+Whenever frame_quality is ok or poor, return all four numeric scores for that player.
+Most frames show only the upper body: score body_fit from the garments you can actually see,
+such as shoulder line, sleeve length, neckline and how the fabric drapes, and do not withhold
+the score because the full body is out of frame. Omit the numeric scores only when
+frame_quality is unusable, in which case omit all four.
+
 Do not assess faces, attractiveness, body type, perceived gender, wealth, brand prestige,
 popularity, or background. Use image quality only to decide whether clothing can be judged.
 Never invent hidden garment details. Keep observations short and grounded in visible clothing.

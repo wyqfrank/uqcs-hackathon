@@ -362,3 +362,18 @@ async def test_gemini_adapter_labels_inline_images_and_requests_strict_schema() 
     assert request["response_format"]["mime_type"] == "application/json"
     assert request["store"] is False
     assert "faces" in request["system_instruction"]
+
+
+def test_prompt_states_the_all_or_nothing_score_contract() -> None:
+    """
+    The schema rejects a judgeable player missing any numeric score, so the
+    prompt has to say so. Gemini omitted body_fit from an upper-body crop and
+    every battle failed validation.
+    """
+    from fitted_inference.vlm import VLM_PROMPTS
+
+    for version, prompt in VLM_PROMPTS.items():
+        assert "all four numeric scores" in prompt, version
+        assert "body_fit" in prompt, version
+        # It must also say when omission is allowed, or the model may omit all.
+        assert "unusable" in prompt, version
