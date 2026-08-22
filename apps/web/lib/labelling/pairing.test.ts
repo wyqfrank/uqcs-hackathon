@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignSplits, buildPairs, isMirroredFor, makeRng } from "./pairing";
+import { assignSplits, availableGroups, buildPairs, isMirroredFor, makeRng } from "./pairing";
 import type { PoolImage } from "./types";
 
 function pool(count: number): PoolImage[] {
@@ -63,8 +63,9 @@ describe("buildPairs", () => {
     expect(new Set(pairs.map((p) => p.id)).size).toBe(pairs.length);
   });
 
-  it("builds all three groups", () => {
-    expect(new Set(pairs.map((p) => p.group))).toEqual(new Set(["clear", "close", "robustness"]));
+  it("builds only the groups the metadata supports", () => {
+    // This fixture has tiers but no outfitTag, so robustness is not constructible.
+    expect(new Set(pairs.map((p) => p.group))).toEqual(new Set(["clear", "close"]));
   });
 
   it("contrasts tiers for clear pairs and matches them otherwise", () => {
@@ -92,5 +93,54 @@ describe("isMirroredFor", () => {
     expect(isMirroredFor("p1", "rater-a")).toBe(isMirroredFor("p1", "rater-a"));
     const raters = Array.from({ length: 40 }, (_, i) => isMirroredFor("p1", `rater-${i}`));
     expect(new Set(raters).size).toBe(2);
+  });
+});
+
+describe("availableGroups", () => {
+  const bare = (n: number) =>
+    assignSplits(
+      Array.from({ length: n }, (_, i) => ({
+        id: `b-${i}`,
+        src: `/label-pool/b-${i}.jpg`,
+        subjectId: `b-${i}`,
+      })),
+    );
+
+  it("falls back to close only for an untagged, untiered flat pool", () => {
+    expect(availableGroups(bare(20))).toEqual(["close"]);
+  });
+
+  it("adds clear once tiers exist", () => {
+    const tiered = bare(20).map((image, i) => ({ ...image, tier: (["high", "low"] as const)[i % 2] }));
+    expect(availableGroups(tiered)).toEqual(["clear", "close"]);
+  });
+
+  it("adds robustness only when an outfit tag is shared", () => {
+    const unique = bare(6).map((image, i) => ({ ...image, outfitTag: `tag-${i}` }));
+    expect(availableGroups(unique)).not.toContain("robustness");
+    const shared = bare(6).map((image, i) => ({ ...image, outfitTag: `tag-${i % 2}` }));
+    expect(availableGroups(shared)).toContain("robustness");
+  });
+});
+
+describe("flat pool (no metadata)", () => {
+  const flat = assignSplits(
+    Array.from({ length: 60 }, (_, i) => ({
+      id: `f-${i}`,
+      src: `/label-pool/f-${i}.jpg`,
+      subjectId: `f-${i}`,
+    })),
+  );
+
+  it("still produces pairs, all labelled close", () => {
+    const pairs = buildPairs(flat, { seed: 3, target: 120 });
+    expect(pairs.length).toBeGreaterThan(20);
+    expect(new Set(pairs.map((p) => p.group))).toEqual(new Set(["close"]));
+  });
+
+  it("never pairs an image with itself", () => {
+    for (const pair of buildPairs(flat, { seed: 3, target: 120 })) {
+      expect(pair.leftId).not.toBe(pair.rightId);
+    }
   });
 });

@@ -17,6 +17,13 @@ export type PoolImage = {
   split: Split;
   /** Optional curator hint used only to build "clear" pairs. Never shown to raters. */
   tier?: "high" | "mid" | "low";
+  /**
+   * Optional curator label for outfit style/type (e.g. "streetwear-casual").
+   * Robustness pairs need this: they compare *similar outfits* worn by
+   * different people under different conditions, which cannot be inferred
+   * from the files alone.
+   */
+  outfitTag?: string;
 };
 
 export type Pair = {

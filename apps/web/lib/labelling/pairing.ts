@@ -70,10 +70,29 @@ export type BuildOptions = {
 };
 
 /**
- * Builds the three PRD pair groups:
- *   clear       — different curator tiers; validates the rater understands the task
- *   close       — same tier; carries the actual preference signal
- *   robustness  — same tier, different subject; exposes background/person bias
+ * Which PRD pair groups the pool's metadata can honestly support.
+ *
+ *   clear       — needs `tier`: pairs across tiers, so the gap is obvious
+ *   robustness  — needs `outfitTag`: pairs similar outfits on different people
+ *   close       — always available: the default like-for-like comparison
+ *
+ * A group is omitted rather than faked. Emitting a `robustness` label for a
+ * pair built exactly like a `close` pair would put meaningless group metadata
+ * into the training set.
+ */
+export function availableGroups(images: readonly PoolImage[]): PairGroup[] {
+  const groups: PairGroup[] = [];
+  if (images.some((image) => image.tier !== undefined)) groups.push("clear");
+  groups.push("close");
+  const tagged = images.filter((image) => image.outfitTag !== undefined);
+  const sharedTag = new Set(tagged.map((image) => image.outfitTag)).size < tagged.length;
+  if (sharedTag) groups.push("robustness");
+  return groups;
+}
+
+/**
+ * Builds the PRD pair groups the pool can support (see `availableGroups`).
+ * Quota is split across whichever groups are constructible.
  *
  * Pairs never cross a split boundary and never pair an image with itself or
  * with another image of the same subject.
@@ -91,17 +110,18 @@ export function buildPairs(images: readonly PoolImage[], options: BuildOptions =
     bySplit.set(image.split, list);
   }
 
-  const wanted: Record<PairGroup, number> = {
-    clear: Math.round(target * 0.2),
-    close: Math.round(target * 0.55),
-    robustness: Math.round(target * 0.25),
-  };
+  const groups = availableGroups(images);
+  const weights: Record<PairGroup, number> = { clear: 0.2, close: 0.55, robustness: 0.25 };
+  const totalWeight = groups.reduce((sum, group) => sum + weights[group], 0);
+  const wanted = Object.fromEntries(
+    groups.map((group) => [group, Math.round((target * weights[group]) / totalWeight)]),
+  ) as Record<PairGroup, number>;
 
   for (const [split, pool] of bySplit) {
     if (pool.length < 2) continue;
     const share = pool.length / images.length;
 
-    for (const group of ["clear", "close", "robustness"] as const) {
+    for (const group of groups) {
       const quota = Math.max(1, Math.round(wanted[group] * share));
       let attempts = 0;
       let made = 0;
@@ -114,8 +134,15 @@ export function buildPairs(images: readonly PoolImage[], options: BuildOptions =
           if (other.id === a.id) return false;
           // Never compare two frames of the same person/outfit/session.
           if (other.subjectId === a.subjectId) return false;
-          if (group === "clear") return a.tier !== undefined && other.tier !== undefined && a.tier !== other.tier;
-          // close and robustness both want like-for-like difficulty.
+          if (group === "clear") {
+            // An obvious quality gap: only meaningful when both tiers are known.
+            return a.tier !== undefined && other.tier !== undefined && a.tier !== other.tier;
+          }
+          if (group === "robustness") {
+            // Similar outfit, different person — exposes background/person bias.
+            return a.outfitTag !== undefined && a.outfitTag === other.outfitTag;
+          }
+          // close: like-for-like difficulty, and never a cross-tier gift.
           return a.tier === other.tier;
         });
         if (!b) continue;
