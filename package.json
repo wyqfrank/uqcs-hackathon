@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "setup": "npm install && node scripts/setup-python.mjs",
+    "setup:model": "node scripts/setup-model.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:web": "npm run dev --workspace @fitted/web",
     "dev:api": "node scripts/python.mjs -m uvicorn fitted_inference.main:app --app-dir services/inference/src --reload --port 8000",
