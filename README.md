@@ -41,7 +41,15 @@ the CUDA-enabled PyTorch wheel appropriate for the demo laptop:
 
 ```powershell
 .venv\Scripts\python -m pip install -e "services/inference[dev,rf]"
+npm run setup:model
+Copy-Item services/inference/.env.example .env
 ```
+
+`setup:model` downloads the pinned Fashionpedia RF-DETR-Seg checkpoint from the
+project's GitHub Release into the ignored `models/rfdetr-fashionpedia/` directory.
+It accepts the artifact only when both its 134,442,577-byte size and SHA-256
+`aafefc440ea8f3f388e894a898e4270a2eeb6e38a3c3ffd3751d07d0f30b26bb`
+match. Re-running the command is safe and skips an already verified checkpoint.
 
 ## Run locally
 

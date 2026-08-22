@@ -1,0 +1,35 @@
+name: Publish pinned fashion model
+
+on:
+  push:
+    tags:
+      - fashionpedia-rfdetr-f1b64c11
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and verify checkpoint
+        env:
+          CHECKPOINT_REVISION: f1b64c11fa42d2f7455708b7a05f81c015461427
+          CHECKPOINT_SHA256: aafefc440ea8f3f388e894a898e4270a2eeb6e38a3c3ffd3751d07d0f30b26bb
+          CHECKPOINT_BYTES: "134442577"
+        run: |
+          curl --fail --location --retry 3 \
+            --output checkpoint_best_ema.pth \
+            "https://huggingface.co/resoa/garment-detector-seg/resolve/${CHECKPOINT_REVISION}/checkpoint_best_ema.pth?download=true"
+          echo "${CHECKPOINT_SHA256}  checkpoint_best_ema.pth" | sha256sum --check --strict
+          test "$(stat --format=%s checkpoint_best_ema.pth)" = "${CHECKPOINT_BYTES}"
+
+      - name: Create release and upload checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            checkpoint_best_ema.pth \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Fashionpedia RF-DETR-Seg Small (f1b64c11)" \
+            --notes "Pinned hackathon checkpoint from resoa/garment-detector-seg. Weights: Apache 2.0. Architecture: RF-DETR by Roboflow, Apache 2.0. Training data: Fashionpedia, CC BY 4.0; cite Jia et al., Fashionpedia, ECCV 2020. SHA-256: aafefc440ea8f3f388e894a898e4270a2eeb6e38a3c3ffd3751d07d0f30b26bb."

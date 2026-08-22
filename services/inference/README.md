@@ -70,6 +70,7 @@ the exact adapter dependencies:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e "services/inference[dev,rf]"
+npm run setup:model
 $env:FITTED_GARMENT_BACKEND = "rfdetr"
 $env:FITTED_GARMENT_CHECKPOINT_PATH = ".\models\rfdetr-fashionpedia\checkpoint_best_ema.pth"
 $env:FITTED_GARMENT_DEVICE = "cuda"
