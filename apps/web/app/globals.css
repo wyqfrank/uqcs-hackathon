@@ -1277,6 +1277,8 @@ kbd {
 
 @media (max-width: 800px) {
   .label-pair { grid-template-columns: 1fr; }
+}
+
 /* --- Landing leaderboard link ------------------------------------------- */
 /* A quieter third action: it leaves the battle flow rather than starting one,
    so it sits below the primary and secondary buttons without competing. */
