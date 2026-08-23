@@ -1682,3 +1682,6 @@ kbd {
 .preview-back:focus-visible { color: var(--ko); }
 
 .setup-back { display: inline-flex; margin-bottom: 18px; }
+
+/* Sits above the name-gate heading, centred with the rest of the hero. */
+.gate-back { display: inline-flex; align-self: center; margin-bottom: 20px; }

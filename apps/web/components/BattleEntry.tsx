@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { ArrowRight, Trophy } from "lucide-react";
+import { ArrowLeft, ArrowRight, Trophy } from "lucide-react";
 import Link from "next/link";
 import { BattleRoom } from "@/components/BattleRoom";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,11 @@ export function BattleEntry({ roomId, role }: { roomId: string; role: RoomRole }
       </nav>
 
       <section className="hero name-gate">
+        {/* Reached by typing a room code, so changing your mind needs an exit
+            that is not just the wordmark. The battle itself has LEAVE. */}
+        <Link href="/" className="back-link gate-back">
+          <ArrowLeft aria-hidden="true" /> BACK
+        </Link>
         <div className="eyebrow"><Trophy aria-hidden="true" /> WHO&apos;S PLAYING?</div>
         <h1>NAME<br /><em>YOURSELF</em></h1>
         <p>
