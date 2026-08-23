@@ -1,0 +1,54 @@
+{
+  "version": "dinov2s-pca-linear-v1",
+  "encoder": "facebook/dinov2-small",
+  "head": "linear",
+  "hidden": null,
+  "activation": null,
+  "collapseDiagnostic": null,
+  "dims": 16,
+  "l2": 0.03,
+  "trainPairs": 761,
+  "valAccuracy": 0.7341772151898734,
+  "test": {
+    "accuracy": 0.6428571428571429,
+    "ci": [
+      0.5606434835587822,
+      0.7174401862557916
+    ],
+    "n": 140
+  },
+  "raters": [
+    "AC",
+    "DP"
+  ],
+  "ratersRequested": [
+    "AC",
+    "DP"
+  ],
+  "teacherPairs": 1972,
+  "teacher": {
+    "holdout": 0.0,
+    "inSample": {
+      "accuracy": 0.6739356178608515,
+      "n": 1926
+    },
+    "heldOut": {
+      "accuracy": null,
+      "ci": [
+        null,
+        null
+      ],
+      "n": 0
+    },
+    "zeroShotValAccuracy": 0.7088607594936709
+  },
+  "calibration": {
+    "quantiles": 256,
+    "fittedOnImages": 128,
+    "rawRange": [
+      -1.1804637908935547,
+      1.5059998035430908
+    ]
+  },
+  "projectionFittedOn": "train-pool"
+}

@@ -124,8 +124,12 @@ python services/inference/scripts/train_ranker.py \
   --teacher data/labelling/teacher.jsonl --report-test
 ```
 
-Artifact: `models/ranker/ranker.npz` + `ranker.json` (gitignored — `models/` is
-ignored, so the artifact must be regenerated after a fresh clone).
+Artifact: `models/ranker/ranker.npz` + `ranker.json` — committed, by deliberate
+exception to the `models/` ignore rule. It cannot be rebuilt from a clone: the
+training inputs are the label pool (photographs of real people, never
+committed) and the 7.8 GB Fashion144k teacher pool, so only a machine holding
+both can run the command above. At 29 KB it ships with the source instead, and
+a fresh clone scores live without a training run.
 
 Architecture: frozen DINOv2-S → PCA to 16 dims (basis fitted on training images
 only) → linear scorer, **no intercept**, so swap consistency holds by
@@ -154,8 +158,9 @@ Useful `train_ranker.py` flags: `--dims`, `--raters AC,DP`, `--decisions-dir`
 `--teacher-holdout`, `--artifact-dir`.
 
 **`--artifact-dir` matters.** The default writes over `models/ranker/ranker.npz`,
-which is gitignored and therefore unrecoverable by git. Point experiments
-somewhere else.
+the committed artifact the service loads. Point experiments somewhere else — an
+overwrite is recoverable with `git checkout models/ranker`, but only if you
+notice before committing it.
 
 ---
 

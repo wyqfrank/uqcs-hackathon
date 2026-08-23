@@ -122,9 +122,11 @@ def test_disabled_ranker_reports_why() -> None:
 
 
 def test_missing_artifact_reports_why(tmp_path) -> None:
+    """The shipped artifact is committed, so absence points at configuration."""
     ranker = create_fit_ranker(settings(ranker_artifact_dir=str(tmp_path)))
     assert isinstance(ranker, UnavailableFitRanker)
-    assert "regenerated" in ranker.reason
+    assert "ranker.npz" in ranker.reason
+    assert "FITTED_RANKER_ARTIFACT_DIR" in ranker.reason
 
 
 def test_unavailable_ranker_refuses_to_score() -> None:

@@ -272,9 +272,10 @@ def create_fit_ranker(settings: Settings) -> FitRanker:
     artifact_dir = _resolve_artifact_dir(settings.ranker_artifact_dir)
     if not (artifact_dir / "ranker.npz").exists():
         return UnavailableFitRanker(
-            f"No ranker artifact at {artifact_dir / 'ranker.npz'}. models/ is gitignored, "
-            "so it must be regenerated after a fresh clone with "
-            "services/inference/scripts/train_ranker.py."
+            f"No ranker artifact at {artifact_dir / 'ranker.npz'}. The shipped one is "
+            "committed at models/ranker, so this usually means "
+            "FITTED_RANKER_ARTIFACT_DIR points somewhere else — check it, or restore "
+            "the file with git checkout models/ranker."
         )
 
     try:

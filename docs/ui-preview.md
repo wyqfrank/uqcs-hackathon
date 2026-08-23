@@ -110,9 +110,9 @@ npm run dev            # both, or:
 npm run dev:api        # service only, port 8000
 ```
 
-If `models/ranker/ranker.npz` is missing — it is gitignored, so it is missing
-after a fresh clone — the readout says so and explains how to regenerate it.
-Nothing else in the harness is affected.
+The artifact is committed, so a fresh clone has one. If it is missing anyway —
+deleted, or `FITTED_RANKER_ARTIFACT_DIR` aimed elsewhere — the readout says so
+and explains how to restore it. Nothing else in the harness is affected.
 
 ### What it is for
 

@@ -18,10 +18,21 @@ dist/
 
 # ML data and generated model artifacts
 data/*
-models/
+models/*
 artifacts/
 checkpoints/
 wandb/
+
+# The trained ranker is the exception: it cannot be rebuilt from a clone. Its
+# training inputs are the label pool (photographs of real people, ignored
+# below) and the 7.8 GB Fashion144k teacher pool, so `train_ranker.py` is only
+# runnable by whoever holds those locally. At 29 KB the artifact is committed
+# so that a fresh clone scores. Its embedding caches stay ignored — they are
+# training scratch, and nothing in the service reads them.
+!models/ranker/
+models/ranker/*
+!models/ranker/ranker.npz
+!models/ranker/ranker.json
 
 # The browser detector's model is a pinned, vendored dependency rather than a
 # training artifact, and the WASM runtime beside it is useless without it.

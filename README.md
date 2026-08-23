@@ -53,6 +53,12 @@ It accepts the artifact only when both its 134,442,577-byte size and SHA-256
 `aafefc440ea8f3f388e894a898e4270a2eeb6e38a3c3ffd3751d07d0f30b26bb`
 match. Re-running the command is safe and skips an already verified checkpoint.
 
+The live fit ranker needs no such download. Its 29 KB artifact
+(`models/ranker/ranker.npz` and `ranker.json`) is committed, because its
+training inputs — the label pool and the 7.8 GB Fashion144k teacher pool — are
+not, and so a clone could not rebuild it. Live scoring does need the `ml`
+extra for the frozen DINOv2-S encoder.
+
 ## Run locally
 
 ```powershell

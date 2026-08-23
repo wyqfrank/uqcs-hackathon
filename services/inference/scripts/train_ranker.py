@@ -556,6 +556,17 @@ def accuracy(
     return float((predicted == (y[decided] > 0.5)).mean()), int(decided.sum())
 
 
+def json_number(value: float) -> float | None:
+    """`None` for a non-finite measurement, because `NaN` is not valid JSON.
+
+    An empty split has no accuracy and no interval, and `accuracy` /
+    `wilson_interval` say so with NaN. Python's json module happily writes a
+    bare `NaN` literal that every strict reader of ranker.json rejects, so the
+    absence is recorded as null instead.
+    """
+    return value if math.isfinite(value) else None
+
+
 def wilson_interval(correct: float, n: int, z: float = 1.96) -> tuple[float, float]:
     """Wilson score interval. With 80-odd test pairs the CI is the honest number."""
     if n == 0:
@@ -840,8 +851,8 @@ def main() -> None:
             "holdout": args.teacher_holdout,
             "inSample": {"accuracy": teacher_accuracy, "n": teacher_n},
             "heldOut": {
-                "accuracy": teacher_held_accuracy,
-                "ci": [held_low, held_high],
+                "accuracy": json_number(teacher_held_accuracy),
+                "ci": [json_number(held_low), json_number(held_high)],
                 "n": teacher_held_n,
             },
             "zeroShotValAccuracy": zero_shot,
@@ -879,7 +890,11 @@ def main() -> None:
         test_accuracy, test_n = accuracy(x_test_l, x_test_r, y_test, scorer)
         low, high = wilson_interval(test_accuracy, test_n)
         print(f"\nTEST: {test_accuracy:.3f}  95% CI [{low:.3f}, {high:.3f}]  (n={test_n})")
-        test_report = {"accuracy": test_accuracy, "ci": [low, high], "n": test_n}
+        test_report = {
+            "accuracy": json_number(test_accuracy),
+            "ci": [json_number(low), json_number(high)],
+            "n": test_n,
+        }
     else:
         print("\nTest split untouched. Pass --report-test once the design is frozen.")
 
