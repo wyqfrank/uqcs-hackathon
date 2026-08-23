@@ -1657,3 +1657,28 @@ kbd {
   background: var(--p2);
 }
 .live-model-tag code { color: var(--text-dim); letter-spacing: 0; }
+
+/* --- Back affordances --------------------------------------------------- */
+/* The rating station and preview harness are entered from the landing page and
+   previously had no way out but the browser control. */
+.label-exit,
+.preview-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  color: var(--text-dimmer);
+  font-family: var(--font-arcade), monospace;
+  font-size: .8rem;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  transition: color .12s;
+}
+.label-exit svg,
+.preview-back svg { width: 15px; }
+.label-exit:hover,
+.label-exit:focus-visible,
+.preview-back:hover,
+.preview-back:focus-visible { color: var(--ko); }
+
+.setup-back { display: inline-flex; margin-bottom: 18px; }

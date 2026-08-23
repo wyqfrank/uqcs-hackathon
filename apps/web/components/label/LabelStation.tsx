@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { isMirroredFor } from "@/lib/labelling/pairing";
 import {
@@ -222,6 +224,11 @@ export function LabelStation({
   return (
     <div className="label-station">
       <header className="label-bar">
+        {/* Every decision POSTs as it is made, so leaving mid-session loses
+            nothing and the exit needs no confirmation. */}
+        <Link href="/" className="label-exit" aria-label="Back to FITTED">
+          <ArrowLeft aria-hidden="true" /> BACK
+        </Link>
         <span>
           {rater.id} · {rater.cohort}
           {splits ? ` · ${splits.join(" + ")}` : ""}

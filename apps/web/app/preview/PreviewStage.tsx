@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import { BattleStage } from "@/components/BattleStage";
 import { useCamera } from "@/hooks/useCamera";
 import { useLiveFitScore } from "@/hooks/useLiveFitScore";
@@ -97,6 +99,9 @@ export function PreviewStage() {
   return (
     <div className="preview-root">
       <nav className="preview-bar">
+        <Link href="/" className="preview-back" aria-label="Back to FITTED">
+          <ArrowLeft aria-hidden="true" /> BACK
+        </Link>
         <b>PREVIEW</b>
         {/* Only the scenarios scroll. The actions stay pinned: there are more
             scenarios than fit a laptop window, and an action that scrolls off

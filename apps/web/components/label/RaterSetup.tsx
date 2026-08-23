@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Rater } from "@/lib/labelling/types";
@@ -24,6 +26,9 @@ export function RaterSetup({ onStart }: { onStart: (rater: Rater) => void }) {
         if (ready) onStart({ id: id.trim(), cohort: cohort.trim(), engagement });
       }}
     >
+      <Link href="/" className="back-link setup-back">
+        <ArrowLeft aria-hidden="true" /> BACK TO FITTED
+      </Link>
       <h1>Outfit rating station</h1>
       <p>
         You will see two outfits at a time. Judge the clothing, coordination and fit —
